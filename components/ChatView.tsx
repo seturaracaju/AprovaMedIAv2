@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import Header from './Header';
 import { ChatMessage, QuizQuestion } from '../types';
@@ -105,21 +106,27 @@ const ChatView: React.FC<ChatViewProps> = ({ pdfFile, pdfText, fileName, onStart
 
     const handleSaveQuestions = async (details: { disciplineId: string; subjectName: string; createTest: boolean; testName: string; }) => {
         if (selectedQuestions.length > 0) {
-            const saveSuccess = await saveQuestionSet(details.disciplineId, details.subjectName, selectedQuestions);
-            if (saveSuccess) {
-                let alertMessage = `Sucesso! ${selectedQuestions.length} questões salvas em "${details.subjectName}".`;
+            try {
+                const savedSet = await saveQuestionSet(details.disciplineId, details.subjectName, selectedQuestions);
+                
+                if (savedSet) {
+                    let alertMessage = `Sucesso! ${selectedQuestions.length} questões salvas em "${details.subjectName}".`;
 
-                if (details.createTest && details.testName) {
-                    const newTest = await testService.createTest(details.testName, selectedQuestions, 'fixed', { disciplineId: details.disciplineId });
-                    if (newTest) {
-                        alertMessage += `\n\nTeste "${newTest.name}" também foi criado com sucesso!`;
-                    } else {
-                        alertMessage += "\n\nFalha ao criar o teste.";
+                    if (details.createTest && details.testName) {
+                        const newTest = await testService.createTest(details.testName, selectedQuestions, 'fixed', { disciplineId: details.disciplineId });
+                        if (newTest) {
+                            alertMessage += `\n\nTeste "${newTest.name}" também foi criado com sucesso!`;
+                        } else {
+                            alertMessage += "\n\nFalha ao criar o teste automaticamente.";
+                        }
                     }
+                    alert(alertMessage);
+                } else {
+                    throw new Error("O servidor não retornou confirmação.");
                 }
-                alert(alertMessage);
-            } else {
-                 alert("Desculpe, ocorreu um erro ao salvar suas questões.");
+            } catch (error: any) {
+                 console.error("Erro ao salvar:", error);
+                 alert(`Erro ao salvar questões: ${error.message || "Verifique sua conexão ou permissões."}`);
             }
         }
         setShowSaveModal(false);

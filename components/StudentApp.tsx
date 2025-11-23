@@ -1,8 +1,9 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Session } from '@supabase/supabase-js';
 import { Student } from '../types';
 import { supabase } from '../services/supabaseClient';
+import { useUser } from '../contexts/UserContext';
 
 import StudentSidebar from './StudentSidebar';
 import StudentDashboardPage from './student/StudentDashboardPage';
@@ -12,16 +13,31 @@ import StudentSummariesPage from './student/OfficialSummariesPage';
 import StudentTrueFlashcardsPage from './student/TrueFlashcardsPage';
 import StudentExplorePage from './student/StudentExplorePage';
 import StudentLibraryPage from './student/StudentLibraryPage';
+import StudentCommunityPage from './student/StudentCommunityPage'; 
+import StudentMarketplacePage from './student/StudentMarketplacePage'; // Fase 4
+import StudentStudyRoomsPage from './student/StudentStudyRoomsPage'; // Fase 4
 
 interface StudentAppProps {
     session: Session;
     studentProfile: Student;
 }
 
-export type StudentView = 'dashboard' | 'explore' | 'library' | 'tests' | 'profile' | 'summaries' | 'trueFlashcards';
+export type StudentView = 'dashboard' | 'explore' | 'library' | 'tests' | 'profile' | 'summaries' | 'trueFlashcards' | 'community' | 'marketplace' | 'rooms';
 
 const StudentApp: React.FC<StudentAppProps> = ({ studentProfile, session }) => {
     const [currentView, setCurrentView] = useState<StudentView>('dashboard');
+    const { setUserRole } = useUser();
+
+    // Sincroniza o contexto do usuário para que a Sidebar e outros componentes saibam que é um aluno.
+    useEffect(() => {
+        if (studentProfile) {
+            setUserRole({ 
+                role: 'student', 
+                studentId: studentProfile.id, 
+                studentName: studentProfile.name 
+            });
+        }
+    }, [studentProfile, setUserRole]);
 
     const handleLogout = async () => {
         await supabase.auth.signOut();
@@ -34,12 +50,18 @@ const StudentApp: React.FC<StudentAppProps> = ({ studentProfile, session }) => {
                 return <StudentExplorePage student={studentProfile} />;
             case 'library':
                 return <StudentLibraryPage student={studentProfile} />;
+            case 'marketplace':
+                return <StudentMarketplacePage student={studentProfile} />;
+            case 'rooms':
+                return <StudentStudyRoomsPage student={studentProfile} />;
             case 'tests':
                 return <StudentTestsPage student={studentProfile} />;
             case 'summaries':
                 return <StudentSummariesPage student={studentProfile} />;
             case 'trueFlashcards':
                 return <StudentTrueFlashcardsPage student={studentProfile} />;
+            case 'community':
+                return <StudentCommunityPage student={studentProfile} />;
             case 'profile':
                 return <StudentProfilePage student={studentProfile} />;
             case 'dashboard':

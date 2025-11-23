@@ -1,6 +1,7 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { View } from './TeacherApp';
-import { PlusCircleIcon, GraduationCapIcon, UsersIcon, ClipboardListIcon, LayersIcon, BookOpenIcon, HomeIcon, FileTextIcon, UserCheckIcon, MoreVerticalIcon, ChevronRightIcon } from './IconComponents';
+import { PlusCircleIcon, GraduationCapIcon, UsersIcon, ClipboardListIcon, LayersIcon, BookOpenIcon, HomeIcon, FileTextIcon, UserCheckIcon, MoreVerticalIcon, ShoppingBagIcon, TrophyIcon, MessageCircleIcon } from './IconComponents';
 import { useUser } from '../contexts/UserContext';
 import { UserRole } from '../types';
 
@@ -20,6 +21,9 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setCurrentView, onLogout
         { view: 'landing', label: 'Nova Sessão de Estudo', icon: PlusCircleIcon },
         { view: 'academicManagement', label: 'Gestão Acadêmica', icon: GraduationCapIcon },
         { view: 'studyBank', label: 'Banco de Estudos', icon: BookOpenIcon },
+        { view: 'marketplace', label: 'Gestão da Loja', icon: ShoppingBagIcon }, // Novo Fase 4
+        { view: 'gamification', label: 'Ranking Global', icon: TrophyIcon }, // Novo Fase 3
+        { view: 'studyRooms', label: 'Salas de Estudo', icon: MessageCircleIcon }, // Novo Fase 4
         { view: 'tests', label: 'Testes na Íntegra', icon: ClipboardListIcon },
         { view: 'crm', label: 'CRM de Alunos', icon: UsersIcon },
         { view: 'officialSummaries', label: 'Resumos Oficiais', icon: FileTextIcon },
@@ -40,8 +44,6 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setCurrentView, onLogout
 
     const handleRoleChange = (role: UserRole) => {
         setUserRole(role);
-        // Keep menu open or close it? Closing feels more natural after selection.
-        // setIsMenuOpen(false); 
     };
 
     const currentRoleLabel = userRole.role === 'teacher' ? 'Professor (Admin)' : userRole.studentName;

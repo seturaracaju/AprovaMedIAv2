@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+
+import React, { useState, useEffect, useRef } from 'react';
 
 interface PdfViewerProps {
     file: File;
@@ -18,6 +19,21 @@ const PdfViewer: React.FC<PdfViewerProps> = ({ file }) => {
     const [numPages, setNumPages] = useState(0);
     const [isRendering, setIsRendering] = useState(false);
     const [pageWidth, setPageWidth] = useState(0);
+    
+    // New state for Image viewing
+    const [imageSrc, setImageSrc] = useState<string | null>(null);
+    const isImage = file.type.startsWith('image/');
+
+    // Cleanup object URL when file changes or component unmounts
+    useEffect(() => {
+        if (isImage) {
+            const url = URL.createObjectURL(file);
+            setImageSrc(url);
+            return () => URL.revokeObjectURL(url);
+        } else {
+            setImageSrc(null);
+        }
+    }, [file, isImage]);
 
     // Effect to observe container size changes
     useEffect(() => {
@@ -35,9 +51,9 @@ const PdfViewer: React.FC<PdfViewerProps> = ({ file }) => {
         return () => resizeObserver.disconnect();
     }, []);
 
-    // Effect to load the PDF document
+    // Effect to load the PDF document (Only if NOT an image)
     useEffect(() => {
-        if (!file || !window.pdfjsLib) return;
+        if (isImage || !file || !window.pdfjsLib) return;
 
         const loadPdf = async () => {
             setPdfDoc(null);
@@ -54,11 +70,11 @@ const PdfViewer: React.FC<PdfViewerProps> = ({ file }) => {
         };
 
         loadPdf();
-    }, [file]);
+    }, [file, isImage]);
 
     // Effect to render a page when the doc, page number, or width changes
     useEffect(() => {
-        if (!pdfDoc || !canvasRef.current || pageWidth === 0) return;
+        if (isImage || !pdfDoc || !canvasRef.current || pageWidth === 0) return;
 
         let renderTask: any = null;
         let cancelled = false;
@@ -109,11 +125,26 @@ const PdfViewer: React.FC<PdfViewerProps> = ({ file }) => {
                 renderTask.cancel();
             }
         };
-    }, [pdfDoc, pageNum, pageWidth]);
+    }, [pdfDoc, pageNum, pageWidth, isImage]);
 
     const goToPrevPage = () => setPageNum(p => Math.max(1, p - 1));
     const goToNextPage = () => setPageNum(p => Math.min(numPages, p + 1));
 
+    // Render Image View
+    if (isImage && imageSrc) {
+        return (
+            <div className="w-full h-full flex flex-col bg-gray-200 border-r border-gray-300 overflow-hidden">
+                 <div className="flex-grow overflow-auto p-4 flex justify-center items-start">
+                    <img src={imageSrc} alt="Uploaded content" className="max-w-full shadow-lg rounded-lg" />
+                 </div>
+                 <div className="flex-shrink-0 p-2 bg-gray-800 text-white text-center text-xs">
+                    Visualização de Imagem (OCR Ativo)
+                 </div>
+            </div>
+        );
+    }
+
+    // Render PDF View
     return (
         <div className="w-full h-full flex flex-col bg-gray-200 border-r border-gray-300">
             <div ref={containerRef} className="flex-grow overflow-y-scroll p-4 flex justify-center items-start">
@@ -132,7 +163,7 @@ const PdfViewer: React.FC<PdfViewerProps> = ({ file }) => {
                 ) : (
                     <div className="flex flex-col items-center justify-center h-full text-gray-500">
                          <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mb-4"></div>
-                         <p>Carregando PDF...</p>
+                         <p>Carregando documento...</p>
                     </div>
                  )}
             </div>

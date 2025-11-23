@@ -1,3 +1,4 @@
+
 import { supabase } from './supabaseClient';
 import { Course, Module, Discipline, Class, Student, QuestionSet, OfficialSummary, TrueFlashcard, FlashcardSet } from '../types';
 
@@ -24,8 +25,6 @@ export const createStudentProfile = async (userId: string, name: string, classId
 };
 
 export const getStudentProfile = async (userId: string): Promise<Student | null> => {
-    // FIX: Removed redundant call to supabase.auth.getUser() and use the passed userId directly.
-    // This fixes the 'User from sub claim in JWT does not exist' error which could be a race condition.
     const { data, error } = await supabase
         .from('students')
         .select('*, classes(*, courses(*))')
@@ -33,7 +32,7 @@ export const getStudentProfile = async (userId: string): Promise<Student | null>
         .single();
     
     if (error) {
-        // 'PGRST116' means "Not a single row was returned". This is expected for non-student users (e.g., teachers).
+        // Ignora erro se não encontrar (significa que não é aluno)
         if (error.code !== 'PGRST116') { 
             console.error('Error fetching student profile:', error);
         }
@@ -43,8 +42,42 @@ export const getStudentProfile = async (userId: string): Promise<Student | null>
     return data ? {
         ...data,
         classId: data.class_id,
-        // Supabase returns nested data matching the types.
     } as Student : null;
+};
+
+// --- Teacher/Admin Auth ---
+export const getTeacherProfile = async (userId: string): Promise<{ id: string, name: string } | null> => {
+    // Consulta direta à tabela teachers
+    const { data, error } = await supabase
+        .from('teachers')
+        .select('*')
+        .eq('user_id', userId)
+        .single();
+    
+    if (error) {
+         if (error.code !== 'PGRST116') {
+             console.error('Error fetching teacher profile:', error);
+         }
+        return null;
+    }
+    return data;
+};
+
+export const ensureTeacherProfile = async (userId: string, email: string, name: string): Promise<void> => {
+    // Tenta inserir o professor se não existir. 
+    // Isso garante que admins hardcoded no App.tsx tenham permissão de RLS no banco.
+    const { error } = await supabase
+        .from('teachers')
+        .upsert(
+            { user_id: userId, email: email, name: name },
+            { onConflict: 'user_id' }
+        );
+
+    if (error) {
+        console.error("Failed to ensure teacher profile:", error.message);
+    } else {
+        console.log("Teacher profile ensured for:", email);
+    }
 };
 
 
@@ -61,10 +94,7 @@ export const addCourse = async (name: string, imageUrl?: string): Promise<Course
         p_name: name,
         p_image_url: imageUrl
     }).select().single();
-    if (error) { 
-        console.error('Error adding course:', error.message || error);
-        throw error;
-    }
+    if (error) { throw error; }
     return data || null;
 };
 
@@ -74,24 +104,23 @@ export const updateCourse = async (id: string, updates: { name?: string; image_u
         p_name: updates.name,
         p_image_url: updates.image_url
     }).select().single();
-    if (error) { console.error('Error updating course:', error.message || error); throw error; }
+    if (error) { throw error; }
     return data || null;
 };
 
 export const deleteCourse = async (id: string): Promise<void> => {
-    // CRITICAL FIX: The previous cascading logic created a circular dependency.
-    // This has been simplified to only delete the primary item. 
-    // The database should ideally handle cascades with `ON DELETE CASCADE`.
+    // Deleta o curso. Como Admin tem acesso total, o banco (se configurado com cascade) ou políticas devem permitir.
+    // Caso contrário, pode falhar se houver filhos.
     const { error } = await supabase.from('courses').delete().eq('id', id);
     if (error) { 
-        console.error('Error deleting course:', error.message || error); 
-        throw error; 
+        console.error("Erro ao deletar curso:", error.message);
+        throw new Error("Não foi possível excluir o curso. Pode haver dependências complexas."); 
     }
 };
 
 export const getModules = async (courseId?: string): Promise<Module[]> => {
     const { data, error } = await supabase.rpc('get_modules_list', { p_course_id: courseId });
-    if (error) { console.error('Error fetching modules from RPC:', error.message || error); return []; }
+    if (error) { return []; }
     return data || [];
 };
 
@@ -101,10 +130,7 @@ export const addModule = async (courseId: string, name: string, imageUrl?: strin
         p_name: name,
         p_image_url: imageUrl
     }).select().single();
-    if (error) { 
-        console.error('Error adding module:', error.message || error);
-        throw error;
-    }
+    if (error) { throw error; }
     return data ? { ...data, courseId: data.course_id } : null;
 };
 
@@ -114,22 +140,21 @@ export const updateModule = async (id: string, updates: { name?: string; image_u
         p_name: updates.name,
         p_image_url: updates.image_url
     }).select().single();
-    if (error) { console.error('Error updating module:', error.message || error); throw error; }
+    if (error) { throw error; }
     return data ? { ...data, courseId: data.course_id } : null;
 };
 
 export const deleteModule = async (id: string): Promise<void> => {
-    // CRITICAL FIX: The previous cascading logic created a circular dependency.
     const { error } = await supabase.from('modules').delete().eq('id', id);
     if (error) { 
-        console.error('Error deleting module:', error.message || error); 
-        throw error; 
+        console.error("Erro ao deletar módulo:", error.message);
+        throw new Error("Erro ao excluir módulo.");
     }
 };
 
 export const getDisciplines = async (moduleId?: string): Promise<Discipline[]> => {
     const { data, error } = await supabase.rpc('get_disciplines_list', { p_module_id: moduleId });
-    if (error) { console.error('Error fetching disciplines from RPC:', error.message || error); return []; }
+    if (error) { return []; }
     return data || [];
 };
 
@@ -139,10 +164,7 @@ export const addDiscipline = async (moduleId: string, name: string, imageUrl?: s
         p_name: name,
         p_image_url: imageUrl
     }).select().single();
-    if (error) { 
-        console.error('Error adding discipline:', error.message || error);
-        throw error;
-    }
+    if (error) { throw error; }
     return data ? { ...data, moduleId: data.module_id } : null;
 };
 
@@ -152,16 +174,64 @@ export const updateDiscipline = async (id: string, updates: { name?: string; ima
         p_name: updates.name,
         p_image_url: updates.image_url
     }).select().single();
-    if (error) { console.error('Error updating discipline:', error.message || error); throw error; }
+    if (error) { throw error; }
     return data ? { ...data, moduleId: data.module_id } : null;
 };
 
 export const deleteDiscipline = async (id: string): Promise<void> => {
-    // CRITICAL FIX: The previous cascading logic created a circular dependency.
+    console.log(`Iniciando exclusão robusta da disciplina ${id}...`);
+
+    // 1. Excluir Testes Vinculados (e suas dependências)
+    const { data: tests } = await supabase.from('tests').select('id').eq('discipline_id', id);
+    if (tests && tests.length > 0) {
+        const testIds = tests.map(t => t.id);
+        // Limpa dependências de testes (Tentativas, Assignments)
+        await supabase.from('student_test_attempts').delete().in('test_id', testIds);
+        // Assignments e tabelas de junção
+        const { data: assignments } = await supabase.from('test_assignments').select('id').in('test_id', testIds);
+        if (assignments && assignments.length > 0) {
+            const assignmentIds = assignments.map(a => a.id);
+            await supabase.from('test_assignment_classes').delete().in('assignment_id', assignmentIds);
+            await supabase.from('test_assignment_students').delete().in('assignment_id', assignmentIds);
+            await supabase.from('test_assignments').delete().in('id', assignmentIds);
+        }
+        // Deleta os testes
+        await supabase.from('tests').delete().in('id', testIds);
+    }
+
+    // 2. Excluir Assuntos (Question Sets) e suas dependências profundas
+    const { data: qSets } = await supabase.from('question_sets').select('id').eq('discipline_id', id);
+    if (qSets && qSets.length > 0) {
+        const qSetIds = qSets.map(q => q.id);
+        
+        // Sessões de Flashcard
+        const { data: sessions } = await supabase.from('flashcard_sessions').select('id').in('question_set_id', qSetIds);
+        if (sessions && sessions.length > 0) {
+            const sessionIds = sessions.map(s => s.id);
+            await supabase.from('flashcard_responses').delete().in('session_id', sessionIds);
+            await supabase.from('flashcard_sessions').delete().in('id', sessionIds);
+        }
+
+        // Outras dependências de Question Sets
+        await supabase.from('student_library').delete().in('question_set_id', qSetIds);
+        await supabase.from('student_question_ratings').delete().in('question_set_id', qSetIds);
+        await supabase.from('flashcard_progress').delete().in('question_set_id', qSetIds);
+        await supabase.from('marketplace_items').delete().match({ content_type: 'question_set' }).in('content_id', qSetIds);
+
+        // Deleta os Question Sets
+        await supabase.from('question_sets').delete().in('id', qSetIds);
+    }
+
+    // 3. Excluir Resumos Oficiais e Baralhos de Flashcards (Simples)
+    await supabase.from('official_summaries').delete().eq('discipline_id', id);
+    await supabase.from('flashcard_sets').delete().eq('discipline_id', id);
+
+    // 4. Finalmente, deletar a disciplina
     const { error } = await supabase.from('disciplines').delete().eq('id', id);
+    
     if (error) { 
-        console.error('Error deleting discipline:', error.message || error); 
-        throw error; 
+        console.error("Erro ao deletar disciplina:", error.message);
+        throw new Error(`Erro ao excluir disciplina: ${error.message}`); 
     }
 };
 
@@ -169,7 +239,7 @@ export const deleteDiscipline = async (id: string): Promise<void> => {
 
 export const getClasses = async (courseId?: string): Promise<Class[]> => {
     const { data, error } = await supabase.rpc('get_classes_list', { p_course_id: courseId });
-    if (error) { console.error('Error fetching classes from RPC:', error.message || error); return []; }
+    if (error) { return []; }
     return data || [];
 };
 
@@ -179,10 +249,7 @@ export const addClass = async (courseId: string, name: string, imageUrl?: string
         p_name: name,
         p_image_url: imageUrl
     }).select().single();
-    if (error) {
-        console.error('Error adding class:', error.message || error);
-        throw error;
-    }
+    if (error) { throw error; }
     return data ? { ...data, courseId: data.course_id } : null;
 };
 
@@ -192,200 +259,105 @@ export const updateClass = async (id: string, updates: { name?: string; image_ur
         p_name: updates.name,
         p_image_url: updates.image_url
     }).select().single();
-    if (error) { console.error('Error updating class:', error.message || error); throw error; }
+    if (error) { throw error; }
     return data?.[0] ? { ...data[0], courseId: data[0].course_id } : null;
 };
 
 export const deleteClass = async (id: string): Promise<void> => {
-    // 1. Find and delete all students in the class
-    const { data: students, error: studentsError } = await supabase
-        .from('students')
-        .select('id')
-        .eq('class_id', id);
-
-    if (studentsError) {
-        console.error('Error finding students for class:', studentsError.message);
-        throw studentsError;
-    }
-    if (students) {
-        // deleteStudent uses an RPC which is good, it handles the auth user
-        await Promise.all(students.map(s => deleteStudent(s.id)));
-    }
-
-    // 2. Delete the class itself
     const { error } = await supabase.from('classes').delete().eq('id', id);
-    if (error) { console.error('Error deleting class:', error.message || error); throw error; }
+    if (error) { 
+        console.error("Erro ao deletar turma:", error.message);
+        throw new Error("Erro ao excluir turma."); 
+    }
 };
 
 export const getStudents = async (classId?: string): Promise<Student[]> => {
     let query = supabase.from('students').select('*, classes(*, courses(*))');
-    if (classId) {
-        query = query.eq('class_id', classId);
-    }
+    if (classId) query = query.eq('class_id', classId);
     const { data, error } = await query.order('name');
-    if (error) { console.error('Error fetching students:', error.message || error); return []; }
-    if (!data) return [];
-    return data.map(student => ({
-        ...student,
-        classId: student.class_id,
-    }));
+    if (error) return [];
+    return data || [];
 };
 
 export const addStudent = async (classId: string, name: string, email: string, password: string, imageUrl?: string): Promise<void> => {
-    // Step 1: Create the auth user.
     const { data: authData, error: authError } = await supabase.auth.signUp({
         email: email,
         password: password,
-        options: {
-            data: {
-                full_name: name,
-                avatar_url: imageUrl,
-            }
-        }
+        options: { data: { full_name: name, avatar_url: imageUrl } }
     });
 
-    if (authError) {
-        console.error('Error creating auth user:', authError.message);
-        throw authError;
-    }
+    if (authError) throw authError;
+    if (!authData.user) throw new Error("Erro ao criar usuário.");
 
-    if (!authData.user) {
-        throw new Error("A conta de usuário não foi criada com sucesso (nenhum dado de usuário retornado).");
-    }
-
-    // Step 2: Create the student profile in the public schema.
-    try {
-        // Using the returned Auth User ID to create the public profile
-        await createStudentProfile(authData.user.id, name, classId, email, imageUrl);
-    } catch (profileError: any) {
-        console.error('CRITICAL: Auth user was created, but profile creation failed.', profileError);
-        
-        // Enhance error message for RLS issues
-        if (profileError.code === '42501' || profileError.message?.includes('row-level security')) {
-             throw new Error(`
-                ERRO DE PERMISSÃO (RLS): O banco de dados impediu a criação do aluno.
-                
-                SOLUÇÃO PARA O ADMIN:
-                Vá no Supabase > SQL Editor e rode o script de políticas de segurança para a tabela 'students'.
-            `);
-        }
-
-        throw new Error(`Sua conta foi criada, mas houve um erro ao configurar seu perfil de aluno. (Erro: ${profileError.message})`);
-    }
+    await createStudentProfile(authData.user.id, name, classId, email, imageUrl);
 };
 
 export const updateStudent = async (student: Student, updates: { name: string; image_url: string; class_id: string, email: string }): Promise<void> => {
-    // This RPC seems to be expecting the user_id in the p_student_id parameter to correctly update the auth.users table.
     const { error } = await supabase.rpc('update_student_user', {
-        p_student_id: student.user_id, // Use user_id instead of student.id
+        p_student_id: student.user_id, 
         p_name: updates.name,
         p_class_id: updates.class_id,
         p_image_url: updates.image_url,
         p_email: updates.email
     });
-
-    if (error) { 
-        console.error('Error calling update_student_user RPC:', error.message || error); 
-        throw error;
-    }
+    if (error) throw error;
 };
 
 export const deleteStudent = async (studentId: string): Promise<void> => {
     const { error } = await supabase.rpc('delete_student_user', { p_student_id: studentId });
-    if (error) { 
-        console.error('Error calling delete_student_user RPC:', error.message || error); 
-        throw error;
+    
+    if (error) {
+         // Fallback: tenta deletar direto a linha se o RPC falhar
+         const { error: fallbackError } = await supabase.from('students').delete().eq('id', studentId);
+         if (fallbackError) throw fallbackError;
     }
 };
 
-
-// New function to get all students with class and course details
 export const getAllStudentsWithDetails = async (): Promise<Student[]> => {
-    // REFACTOR: The direct 'select' query on the 'students' table is likely blocked by RLS for non-student users (teachers).
-    // This implementation now uses the 'get_structured_academic_content' RPC, which provides a complete view of the academic structure,
-    // and then flattens the result to produce the expected list of all students with their nested class and course details.
-    // This ensures that teacher-level views like the CRM can access all student data.
     const { data: structuredData, error } = await supabase.rpc('get_structured_academic_content');
-
-    if (error) {
-        console.error('Error fetching structured data to build students list:', error.message || error);
-        return [];
-    }
-    if (!structuredData) {
-        return [];
-    }
+    if (error || !structuredData) return [];
 
     const allStudents: Student[] = [];
-
     structuredData.forEach((course: Course) => {
         if (course.classes) {
             course.classes.forEach((cls: Class) => {
                 if (cls.students) {
-                    cls.students.forEach((student: Omit<Student, 'classes'>) => {
-                        // Manually construct the student object to match the expected nested structure.
-                        const studentWithDetails: Student = {
+                    cls.students.forEach((student: any) => {
+                        allStudents.push({
                             ...student,
-                            classId: cls.id, // Ensure classId is correctly set
+                            classId: cls.id,
                             classes: {
                                 ...cls,
-                                students: undefined, // Avoid deep/circular nesting
-                                courses: {
-                                    ...course,
-                                    modules: undefined, // Avoid deep/circular nesting
-                                    classes: undefined,
-                                }
+                                students: undefined,
+                                courses: { ...course, modules: undefined, classes: undefined }
                             }
-                        };
-                        allStudents.push(studentWithDetails);
+                        });
                     });
                 }
             });
         }
     });
-    
-    // The previous implementation had an order by name, so we replicate that here.
-    allStudents.sort((a, b) => a.name.localeCompare(b.name));
-
-    return allStudents;
+    return allStudents.sort((a, b) => a.name.localeCompare(b.name));
 };
 
 export const getStructuredDataForManagement = async (): Promise<Course[]> => {
     const { data, error } = await supabase.rpc('get_structured_academic_content');
-    if (error) {
-        console.error('Error fetching structured data from RPC:', error.message || error);
-        return [];
-    }
-    return data || [];
+    return error ? [] : data || [];
 };
 
-export const getStudentCourseContent = async (studentId: string): Promise<Course | null> => {
-    const { data, error } = await supabase.rpc('get_student_course_content', { p_student_id: studentId });
-    if (error) {
-        console.error("Error fetching student course content:", error.message || error);
-        return null;
-    }
-    return data;
-};
-
-// --- New Functions for Summaries & True Flashcards ---
+// --- Summaries & Flashcards ---
 
 export const saveSummary = async (disciplineId: string, title: string, content: string): Promise<boolean> => {
-    // This function relies on RPC which might not return true/false reliably, but checking error is standard.
     const { error } = await supabase.rpc('save_summary', {
         p_discipline_id: disciplineId,
         p_title: title,
         p_content: content,
     });
-
-    if (error) {
-        console.error('Error saving summary:', error.message || error);
-        return false;
-    }
-    return true;
+    return !error;
 };
 
+// Função existente (mantida para compatibilidade)
 export const getSummariesStructure = async (): Promise<Course[]> => {
-    // Replaced RPC with direct select to ensure official_summaries are included
     const { data, error } = await supabase
         .from('courses')
         .select(`
@@ -399,47 +371,45 @@ export const getSummariesStructure = async (): Promise<Course[]> => {
             )
         `)
         .order('name');
-    
-    if (error) {
-        console.error("Error fetching summaries structure:", error.message || error);
-        return [];
-    }
-    return data || [];
+    return error ? [] : data || [];
 };
 
+// NOVA FUNÇÃO: Busca linear de todos os resumos com contexto (Curso > Modulo > Disciplina)
+export const getAllSummariesWithContext = async (): Promise<(OfficialSummary & { disciplineName: string, moduleName: string, courseName: string })[]> => {
+    // Query otimizada e compacta
+    const { data, error } = await supabase
+        .from('official_summaries')
+        .select('*, disciplines(name, modules(name, courses(name)))')
+        .order('created_at', { ascending: false });
+
+    if (error) {
+        console.error("Erro ao buscar resumos (Supabase):", error.message || error);
+        return [];
+    }
+
+    if (!data) return [];
+
+    return data.map((item: any) => ({
+        id: item.id,
+        created_at: item.created_at,
+        discipline_id: item.discipline_id,
+        title: item.title,
+        content: item.content,
+        disciplineName: item.disciplines?.name || 'Sem Disciplina',
+        moduleName: item.disciplines?.modules?.name || 'Sem Módulo',
+        courseName: item.disciplines?.modules?.courses?.name || 'Sem Curso'
+    }));
+};
 
 export const getStudentSummariesStructure = async (studentId: string): Promise<Course | null> => {
-    // 1. Get the student's course ID via their class
-    const { data: studentData, error: studentError } = await supabase
-        .from('students')
-        .select('classes(course_id)')
-        .eq('id', studentId)
-        .single();
-
-    if (studentError) {
-        console.error("Error fetching student course info:", studentError.message);
-        return null;
-    }
+    const { data: studentData } = await supabase.from('students').select('classes(course_id)').eq('id', studentId).single();
+    if (!studentData?.classes) return null;
     
-    if (!studentData || !studentData.classes) {
-        console.warn("Student has no class assigned or student not found.");
-        return null;
-    }
-
-    // Handle potential array response for relations (though single() should handle row, relations can be tricky)
-    const classesData = Array.isArray(studentData.classes) ? studentData.classes[0] : studentData.classes;
-    // @ts-ignore
+    const classesData: any = Array.isArray(studentData.classes) ? studentData.classes[0] : studentData.classes;
     const courseId = classesData?.course_id;
+    if (!courseId) return null;
 
-    if (!courseId) {
-        console.warn("Student class has no course assigned.");
-        return null;
-    }
-
-    // 2. Fetch the full course structure with summaries for that course
-    const { data, error } = await supabase
-        .from('courses')
-        .select(`
+    const { data } = await supabase.from('courses').select(`
             *,
             modules (
                 *,
@@ -448,45 +418,20 @@ export const getStudentSummariesStructure = async (studentId: string): Promise<C
                     official_summaries (*)
                 )
             )
-        `)
-        .eq('id', courseId)
-        .single();
-
-     if (error) {
-        console.error("Error fetching student summaries structure:", error.message || error);
-        return null;
-    }
+        `).eq('id', courseId).single();
     return data;
 };
 
-
 export const updateSummary = async (summaryId: string, updates: { title: string; content: string }): Promise<OfficialSummary | null> => {
-    const { data, error } = await supabase
-        .from('official_summaries')
-        .update({ title: updates.title, content: updates.content })
-        .eq('id', summaryId)
-        .select()
-        .single();
-    
-    if (error) {
-        console.error('Error updating summary:', error.message || error);
-        throw error;
-    }
+    const { data, error } = await supabase.from('official_summaries').update(updates).eq('id', summaryId).select().single();
+    if (error) throw error;
     return data;
 };
 
 export const deleteSummary = async (summaryId: string): Promise<void> => {
-    const { error } = await supabase
-        .from('official_summaries')
-        .delete()
-        .eq('id', summaryId);
-
-    if (error) {
-        console.error('Error deleting summary:', error.message || error);
-        throw error;
-    }
+    const { error } = await supabase.from('official_summaries').delete().eq('id', summaryId);
+    if (error) throw error;
 };
-
 
 export const saveFlashcardSet = async (disciplineId: string, subjectName: string, flashcards: TrueFlashcard[]): Promise<boolean> => {
     const { error } = await supabase.rpc('save_flashcard_set', {
@@ -494,10 +439,5 @@ export const saveFlashcardSet = async (disciplineId: string, subjectName: string
         p_subject_name: subjectName,
         p_flashcards: flashcards,
     });
-
-    if (error) {
-        console.error('Error saving flashcard set:', error.message || error);
-        return false;
-    }
-    return true;
+    return !error;
 };

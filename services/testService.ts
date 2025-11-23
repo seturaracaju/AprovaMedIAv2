@@ -1,3 +1,4 @@
+
 import { supabase } from './supabaseClient';
 import { Test, QuizQuestion, TestAssignment, StudentTestAttempt, StudentAvailableTest } from '../types';
 
@@ -38,20 +39,36 @@ export const createTest = async (
         return null;
     }
 
-    const { data, error } = await supabase.rpc('create_test', {
-        p_name: name,
-        p_questions: questions,
-        p_test_type: testType,
-        p_course_id: context?.courseId,
-        p_module_id: context?.moduleId,
-        p_discipline_id: context?.disciplineId
-    }).select().single();
+    try {
+        const payload: any = {
+            name: name,
+            questions: questions,
+            test_type: testType,
+            course_id: context?.courseId || null,
+            module_id: context?.moduleId || null,
+            discipline_id: context?.disciplineId || null
+        };
 
-    if (error) {
-        console.error("Erro ao criar o teste:", error.message || error);
+        const { data, error } = await supabase
+            .from('tests')
+            .insert(payload)
+            .select()
+            .single();
+
+        if (error) {
+            console.error("Error creating test:", error);
+            if (error.code === '42501') {
+                alert("Erro de Permissão (RLS): O banco de dados bloqueou a criação do teste. Execute o script SQL de permissões no Supabase.");
+            }
+            return null;
+        }
+
+        return data;
+
+    } catch (error: any) {
+        console.error("Unexpected error creating test:", error);
         return null;
     }
-    return data;
 };
 
 export const createTestAssignment = async (

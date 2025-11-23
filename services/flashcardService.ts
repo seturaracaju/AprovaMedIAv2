@@ -1,5 +1,50 @@
+
 import { supabase } from './supabaseClient';
-import { FlashcardSession, FlashcardResponse, QuestionDifficulty } from '../types';
+import { FlashcardSession, FlashcardResponse, QuestionDifficulty, FlashcardSet } from '../types';
+
+// --- Flashcard SETS (Q&A Decks) ---
+
+export const getFlashcardSets = async (): Promise<FlashcardSet[]> => {
+    const { data, error } = await supabase
+        .from('flashcard_sets')
+        .select('*')
+        .order('created_at', { ascending: false });
+    
+    if (error) {
+        console.error("Erro ao buscar flashcard sets:", error);
+        return [];
+    }
+    return data as FlashcardSet[];
+};
+
+export const saveFlashcardSet = async (disciplineId: string, subjectName: string, flashcards: any[]): Promise<boolean> => {
+    const { error } = await supabase
+        .from('flashcard_sets')
+        .insert({
+            discipline_id: disciplineId,
+            subject_name: subjectName,
+            flashcards: flashcards,
+        });
+
+    if (error) {
+        console.error("Erro ao salvar flashcard set:", error);
+        return false;
+    }
+    return true;
+};
+
+export const deleteFlashcardSet = async (id: string): Promise<boolean> => {
+    const { error } = await supabase
+        .from('flashcard_sets')
+        .delete()
+        .eq('id', id);
+    
+    if (error) return false;
+    return true;
+};
+
+
+// --- Flashcard SESSIONS (Study Mode) ---
 
 /**
  * Busca uma sessão de flashcard em andamento ou cria uma nova usando uma função RPC segura.

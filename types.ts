@@ -58,6 +58,11 @@ export interface Student {
     classes?: Class;
     user_id?: string; // Link to auth.users
     email?: string;
+    // Gamification Fields
+    xp?: number;
+    level?: number;
+    current_streak?: number;
+    last_study_date?: string;
 }
 
 
@@ -229,6 +234,9 @@ export interface FlashcardResponse {
 
 export type QuestionDifficulty = 'easy' | 'medium' | 'hard';
 
+// Enum for Spaced Repetition Ratings
+export type SRSRating = 'again' | 'hard' | 'good' | 'easy';
+
 export interface StudentQuestionRating {
     id: string;
     created_at: string;
@@ -348,4 +356,36 @@ export interface LibraryItem {
     difficulty: 'Fácil' | 'Média' | 'Difícil';
     incidence: number;
     questions: QuizQuestion[];
+}
+
+// --- FASE 4: Marketplace & Collaboration Types ---
+
+export interface MarketplaceItem {
+    id: string;
+    title: string;
+    description: string;
+    price: number;
+    image_url?: string;
+    category: string;
+    content_id: string; // link to question_set or course
+    content_type: 'question_set' | 'course';
+    author_id?: string; // optional author
+}
+
+export interface StudyRoom {
+    id: string;
+    name: string;
+    description: string;
+    created_by: string;
+    created_at: string;
+    participant_count?: number;
+}
+
+export interface RoomMessage {
+    id: string;
+    room_id: string;
+    user_id: string;
+    content: string;
+    created_at: string;
+    student?: { name: string }; // Joined data
 }

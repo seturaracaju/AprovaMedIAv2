@@ -1,8 +1,11 @@
+
 import React, { useState, useEffect, useMemo, FC } from 'react';
 import { Course, Module, Discipline, OfficialSummary, QuestionSet } from '../types';
 import * as academicService from '../services/academicService';
 import * as geminiService from '../services/geminiService';
-import { FileTextIcon, ChevronRightIcon, XIcon, EditIcon, TrashIcon, SaveIcon, BrainCircuitIcon, PlusCircleIcon } from './IconComponents';
+import * as questionBankService from '../services/questionBankService';
+import { FileTextIcon, ChevronRightIcon, XIcon, EditIcon, TrashIcon, SaveIcon, BrainCircuitIcon, PlusCircleIcon, SearchIcon, RefreshCwIcon, DownloadIcon } from './IconComponents';
+import { jsPDF } from 'jspdf';
 
 // --- Helper Components ---
 
@@ -49,7 +52,6 @@ const SummaryContent: FC<{ content: string; isStudyMode: boolean }> = ({ content
     return <div className="prose prose-lg max-w-none whitespace-pre-wrap">{processContent(content)}</div>;
 };
 
-
 // The modal for reading, studying, and editing a summary
 const SummaryReaderModal: FC<{
     summary: OfficialSummary;
@@ -63,6 +65,7 @@ const SummaryReaderModal: FC<{
     const [title, setTitle] = useState(summary.title);
     const [content, setContent] = useState(summary.content);
     const [isSaving, setIsSaving] = useState(false);
+    const [isDownloading, setIsDownloading] = useState(false);
 
     const handleSave = async () => {
         setIsSaving(true);
@@ -77,6 +80,66 @@ const SummaryReaderModal: FC<{
             onClose();
         }
     };
+
+    const handleDownloadPDF = () => {
+        setIsDownloading(true);
+        try {
+            const doc = new jsPDF({
+                orientation: 'p',
+                unit: 'mm',
+                format: 'a4',
+            });
+
+            // Prepara o HTML para o PDF (converter markdown simples para tags HTML)
+            // Isso garante que o texto fique visível e formatado (negrito), sem "esconder" nada.
+            const htmlContent = content
+                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') // Negrito
+                .replace(/^\* (.*$)/gm, '<li>$1</li>') // Listas
+                .replace(/<\/li>\n<li>/g, '</li><li>') 
+                .replace(/(<li>.*<\/li>)/gs, '<ul>$1</ul>')
+                .replace(/\n/g, '<br>'); // Quebras de linha
+
+            const printableElement = document.createElement('div');
+            printableElement.innerHTML = `
+                <div style="width: 170mm; font-family: Helvetica, Arial, sans-serif; font-size: 12pt; line-height: 1.5; color: #333;">
+                    <h1 style="color: #0D9488; font-size: 18pt; margin-bottom: 10px; border-bottom: 2px solid #0D9488; padding-bottom: 5px;">${title}</h1>
+                    <div style="text-align: justify;">
+                        ${htmlContent}
+                    </div>
+                    <div style="margin-top: 20px; border-top: 1px solid #ccc; padding-top: 5px; text-align: center; font-size: 9pt; color: #888;">
+                        Gerado por AprovaMed IA
+                    </div>
+                </div>
+            `;
+            
+            // CORREÇÃO: Posiciona o elemento em 0,0 mas atrás de tudo (z-index negativo).
+            // Mover para left: -9999px costuma causar renderização em branco no html2canvas.
+            printableElement.style.position = 'absolute';
+            printableElement.style.top = '0';
+            printableElement.style.left = '0';
+            printableElement.style.zIndex = '-9999';
+            printableElement.style.backgroundColor = '#ffffff'; // Fundo branco explícito
+            
+            document.body.appendChild(printableElement);
+
+            doc.html(printableElement, {
+                callback: (doc) => {
+                    doc.save(`${title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.pdf`);
+                    document.body.removeChild(printableElement);
+                    setIsDownloading(false);
+                },
+                x: 20,
+                y: 20,
+                width: 170, // Largura útil A4 (210mm) - margens (20mm * 2) = 170mm
+                windowWidth: 1000, // Largura da janela virtual aumentada para garantir renderização correta
+            });
+
+        } catch (error) {
+            console.error("Erro ao gerar PDF:", error);
+            alert("Não foi possível gerar o PDF. Tente novamente.");
+            setIsDownloading(false);
+        }
+    };
     
     return (
          <div className="fixed inset-0 bg-black/50 z-40 flex items-center justify-center p-4" onClick={onClose}>
@@ -85,9 +148,21 @@ const SummaryReaderModal: FC<{
                     {isEditing ? (
                         <input value={title} onChange={e => setTitle(e.target.value)} className="text-xl font-bold text-gray-800 bg-white border-b-2 border-primary focus:outline-none w-full mr-4"/>
                     ) : (
-                        <h2 className="text-xl font-bold text-gray-800 truncate">{title}</h2>
+                        <h2 className="text-xl font-bold text-gray-800 truncate flex-1 mr-4">{title}</h2>
                     )}
                     <div className="flex items-center gap-2">
+                        <button 
+                            onClick={handleDownloadPDF} 
+                            disabled={isDownloading}
+                            className="p-2 rounded-lg hover:bg-gray-200 text-gray-600 disabled:opacity-50"
+                            title="Baixar PDF"
+                        >
+                            {isDownloading ? (
+                                <div className="w-5 h-5 border-2 border-gray-500 border-t-transparent rounded-full animate-spin"></div>
+                            ) : (
+                                <DownloadIcon className="w-5 h-5" />
+                            )}
+                        </button>
                         <button onClick={() => setIsStudyMode(!isStudyMode)} className={`px-3 py-1.5 text-sm font-semibold rounded-lg flex items-center gap-2 transition-colors ${isStudyMode ? 'bg-primary/20 text-primary' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}>
                            <BrainCircuitIcon className="w-4 h-4" /> Modo Estudo
                         </button>
@@ -128,10 +203,8 @@ const SummaryReaderModal: FC<{
 interface CreateSummaryModalProps {
     onClose: () => void;
     onSave: (details: { disciplineId: string; title: string; content: string }) => Promise<void>;
-    initialDisciplineId?: string | null;
-    structure: Course[];
 }
-const CreateSummaryModal: FC<CreateSummaryModalProps> = ({ onClose, onSave, initialDisciplineId, structure }) => {
+const CreateSummaryModal: FC<CreateSummaryModalProps> = ({ onClose, onSave }) => {
     const [title, setTitle] = useState('');
     const [content, setContent] = useState('');
     const [courses, setCourses] = useState<Course[]>([]);
@@ -144,31 +217,18 @@ const CreateSummaryModal: FC<CreateSummaryModalProps> = ({ onClose, onSave, init
     const [isSaving, setIsSaving] = useState(false);
     
     const [contentSource, setContentSource] = useState<'manual' | 'ai'>('manual');
+    const [availableQuestionSets, setAvailableQuestionSets] = useState<QuestionSet[]>([]);
     const [selectedQuestionSetIds, setSelectedQuestionSetIds] = useState<Set<string>>(new Set());
+    const [isLoadingSets, setIsLoadingSets] = useState(false);
 
     useEffect(() => {
-        const loadInitial = async () => {
+        // Fetch structure for dropdowns
+        const loadStructure = async () => {
             const coursesData = await academicService.getCourses();
             setCourses(coursesData);
-            if (initialDisciplineId) {
-                for (const course of structure) {
-                    for (const module of course.modules || []) {
-                        if (module.disciplines?.some(d => d.id === initialDisciplineId)) {
-                            setSelectedCourseId(course.id);
-                            const modulesForCourse = await academicService.getModules(course.id);
-                            setModules(modulesForCourse);
-                            setSelectedModuleId(module.id);
-                            const disciplinesForModule = await academicService.getDisciplines(module.id);
-                            setDisciplines(disciplinesForModule);
-                            setSelectedDisciplineId(initialDisciplineId);
-                            return;
-                        }
-                    }
-                }
-            }
         };
-        loadInitial();
-    }, [initialDisciplineId, structure]);
+        loadStructure();
+    }, []);
 
     useEffect(() => {
         if (selectedCourseId) {
@@ -186,18 +246,21 @@ const CreateSummaryModal: FC<CreateSummaryModalProps> = ({ onClose, onSave, init
         }
     }, [selectedModuleId]);
 
-    const questionSetsForDiscipline = useMemo(() => {
-        if (!selectedDisciplineId) return [];
-        for (const course of structure) {
-            for (const module of course.modules || []) {
-                const discipline = module.disciplines?.find(d => d.id === selectedDisciplineId);
-                if (discipline) {
-                    return discipline.question_sets || [];
-                }
-            }
+    // Fetch Question Sets when discipline changes
+    useEffect(() => {
+        if (selectedDisciplineId) {
+            const fetchSets = async () => {
+                setIsLoadingSets(true);
+                const sets = await questionBankService.getQuestionSetsByDiscipline(selectedDisciplineId);
+                setAvailableQuestionSets(sets);
+                setIsLoadingSets(false);
+                setSelectedQuestionSetIds(new Set());
+            };
+            fetchSets();
+        } else {
+            setAvailableQuestionSets([]);
         }
-        return [];
-    }, [selectedDisciplineId, structure]);
+    }, [selectedDisciplineId]);
 
     const handleToggleQuestionSet = (id: string) => {
         setSelectedQuestionSetIds(prev => {
@@ -227,11 +290,11 @@ const CreateSummaryModal: FC<CreateSummaryModalProps> = ({ onClose, onSave, init
                     throw new Error('Por favor, selecione ao menos um assunto para gerar o resumo.');
                 }
                 
-                const selectedSets = questionSetsForDiscipline.filter(qs => selectedQuestionSetIds.has(qs.id));
+                const selectedSets = availableQuestionSets.filter(qs => selectedQuestionSetIds.has(qs.id));
                 const allQuestions = selectedSets.flatMap(qs => qs.questions);
 
                 if (allQuestions.length === 0) {
-                    throw new Error('Os assuntos selecionados não contêm questões.');
+                    throw new Error('Os assuntos selecionados não contêm questões para gerar o resumo.');
                 }
 
                 const context = allQuestions.map((q, i) =>
@@ -305,23 +368,33 @@ const CreateSummaryModal: FC<CreateSummaryModalProps> = ({ onClose, onSave, init
                         </div>
                     ) : (
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Selecione os Assuntos</label>
-                            {questionSetsForDiscipline.length > 0 ? (
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Selecione os Assuntos para Basear o Resumo</label>
+                            {isLoadingSets ? (
+                                <div className="p-4 text-center text-gray-500 border rounded-md">
+                                    <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
+                                    Carregando assuntos...
+                                </div>
+                            ) : availableQuestionSets.length > 0 ? (
                                 <div className="max-h-48 overflow-y-auto border rounded-md p-2 space-y-1 bg-white">
-                                    {questionSetsForDiscipline.map(qs => (
-                                        <label key={qs.id} className="flex items-center gap-2 p-1 rounded hover:bg-gray-100 cursor-pointer">
+                                    {availableQuestionSets.map(qs => (
+                                        <label key={qs.id} className="flex items-center gap-2 p-2 rounded hover:bg-gray-50 cursor-pointer border-b last:border-0 border-gray-50">
                                             <input
                                                 type="checkbox"
                                                 checked={selectedQuestionSetIds.has(qs.id)}
                                                 onChange={() => handleToggleQuestionSet(qs.id)}
                                                 className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
                                             />
-                                            {qs.subjectName} ({qs.questions.length} questões)
+                                            <div>
+                                                <p className="text-sm font-medium text-gray-800">{qs.subjectName}</p>
+                                                <p className="text-xs text-gray-500">{qs.questions.length} questões</p>
+                                            </div>
                                         </label>
                                     ))}
                                 </div>
                             ) : (
-                                <p className="text-sm text-gray-500 italic p-2">Esta disciplina não possui "Assuntos" (conjuntos de questões) para gerar um resumo.</p>
+                                <p className="text-sm text-gray-500 italic p-3 border rounded-md bg-gray-50">
+                                    {!selectedDisciplineId ? "Selecione uma disciplina acima." : "Esta disciplina não possui assuntos (conjuntos de questões) cadastrados."}
+                                </p>
                             )}
                         </div>
                     )}
@@ -340,20 +413,21 @@ const CreateSummaryModal: FC<CreateSummaryModalProps> = ({ onClose, onSave, init
 };
 
 // --- Main Page Component ---
+type ExtendedSummary = OfficialSummary & { disciplineName: string, moduleName: string, courseName: string };
+
 const OfficialSummariesPage: React.FC = () => {
-    const [structure, setStructure] = useState<Course[]>([]);
+    const [summaries, setSummaries] = useState<ExtendedSummary[]>([]);
+    const [filteredSummaries, setFilteredSummaries] = useState<ExtendedSummary[]>([]);
     const [isLoading, setIsLoading] = useState(true);
-    const [selectedDiscipline, setSelectedDiscipline] = useState<Discipline | null>(null);
     const [viewingSummary, setViewingSummary] = useState<OfficialSummary | null>(null);
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-
-    const [expandedCourses, setExpandedCourses] = useState<Set<string>>(new Set());
-    const [expandedModules, setExpandedModules] = useState<Set<string>>(new Set());
+    const [searchTerm, setSearchTerm] = useState('');
 
     const loadData = async () => {
         setIsLoading(true);
-        const data = await academicService.getSummariesStructure();
-        setStructure(data);
+        const data = await academicService.getAllSummariesWithContext();
+        setSummaries(data);
+        setFilteredSummaries(data);
         setIsLoading(false);
     };
 
@@ -361,13 +435,25 @@ const OfficialSummariesPage: React.FC = () => {
         loadData();
     }, []);
 
+    useEffect(() => {
+        if (!searchTerm) {
+            setFilteredSummaries(summaries);
+        } else {
+            const lowerSearch = searchTerm.toLowerCase();
+            setFilteredSummaries(summaries.filter(s => 
+                s.title.toLowerCase().includes(lowerSearch) || 
+                s.disciplineName.toLowerCase().includes(lowerSearch)
+            ));
+        }
+    }, [searchTerm, summaries]);
+
     const handleCreateSummary = async (details: { disciplineId: string; title: string; content: string }) => {
         try {
             const success = await academicService.saveSummary(details.disciplineId, details.title, details.content);
             if (success) {
                 alert('Resumo criado com sucesso!');
                 setIsCreateModalOpen(false);
-                await loadData();
+                await loadData(); 
             } else {
                 throw new Error("A operação de salvar o resumo falhou no servidor.");
             }
@@ -387,99 +473,102 @@ const OfficialSummariesPage: React.FC = () => {
         await academicService.deleteSummary(id);
         await loadData();
     };
-    
-    const toggleCourse = (id: string) => setExpandedCourses(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
-    const toggleModule = (id: string) => setExpandedModules(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
 
     return (
         <>
-            <div className="h-full w-full flex bg-gray-50 overflow-hidden">
-                {/* Left Navigation Panel */}
-                <div className="w-80 h-full bg-white border-r flex flex-col">
-                    <header className="p-4 border-b">
-                        <h1 className="text-xl font-bold text-gray-800">Resumos Oficiais</h1>
-                        <p className="text-sm text-gray-500">Navegue pela estrutura acadêmica.</p>
-                    </header>
-                    <nav className="flex-grow p-2 overflow-y-auto">
-                        {isLoading ? <p className="p-4 text-gray-500">Carregando...</p> : (
-                            <ul className="space-y-1">
-                                {structure.map(course => (
-                                    <li key={course.id}>
-                                        <button onClick={() => toggleCourse(course.id)} className="w-full flex justify-between items-center text-left p-2 rounded-md hover:bg-gray-100 font-semibold">
-                                            {course.name}
-                                            <ChevronRightIcon className={`w-5 h-5 transition-transform ${expandedCourses.has(course.id) ? 'rotate-90' : ''}`} />
-                                        </button>
-                                        {expandedCourses.has(course.id) && (
-                                            <ul className="pl-4 mt-1 space-y-1 border-l-2 ml-2">
-                                                {course.modules?.map(module => (
-                                                    <li key={module.id}>
-                                                        <button onClick={() => toggleModule(module.id)} className="w-full flex justify-between items-center text-left p-2 rounded-md hover:bg-gray-100 font-medium text-sm">
-                                                            {module.name}
-                                                            <ChevronRightIcon className={`w-4 h-4 transition-transform ${expandedModules.has(module.id) ? 'rotate-90' : ''}`} />
-                                                        </button>
-                                                        {expandedModules.has(module.id) && (
-                                                            <ul className="pl-4 mt-1 space-y-1 border-l-2 ml-2">
-                                                                {module.disciplines?.map(discipline => (
-                                                                    <li key={discipline.id}>
-                                                                        <button onClick={() => setSelectedDiscipline(discipline)} className={`w-full text-left p-2 rounded-md text-sm ${selectedDiscipline?.id === discipline.id ? 'bg-primary/10 text-primary font-semibold' : 'hover:bg-gray-100'}`}>
-                                                                            {discipline.name}
-                                                                        </button>
-                                                                    </li>
-                                                                ))}
-                                                            </ul>
-                                                        )}
-                                                    </li>
-                                                ))}
-                                            </ul>
-                                        )}
-                                    </li>
-                                ))}
-                            </ul>
-                        )}
-                    </nav>
-                </div>
-                
-                {/* Right Content Panel */}
-                <main className="flex-1 flex flex-col overflow-y-auto">
-                     <header className="p-6 bg-white border-b sticky top-0 flex justify-between items-center">
-                         <div>
-                            <h1 className="text-2xl font-bold text-gray-800">{selectedDiscipline ? selectedDiscipline.name : 'Selecione uma Disciplina'}</h1>
-                            <p className="text-gray-500 mt-1">{selectedDiscipline ? 'Veja, edite ou crie novos resumos.' : 'Use o painel à esquerda para navegar.'}</p>
-                         </div>
-                         <div>
-                             <button onClick={() => setIsCreateModalOpen(true)} className="px-4 py-2 bg-primary text-white font-semibold rounded-lg flex items-center gap-2 hover:bg-primary-dark transition-colors">
-                                <PlusCircleIcon className="w-5 h-5" />
-                                Criar Resumo
-                            </button>
-                         </div>
-                    </header>
-                    <div className="p-6">
-                        {selectedDiscipline ? (
-                            (selectedDiscipline.official_summaries?.length || 0) > 0 ? (
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                    {selectedDiscipline.official_summaries?.map(summary => (
-                                        <button key={summary.id} onClick={() => setViewingSummary(summary)} className="bg-white p-4 rounded-lg border shadow-sm hover:shadow-md hover:border-primary transition-all text-left">
-                                            <h3 className="font-bold text-gray-800">{summary.title}</h3>
-                                            <p className="text-xs text-gray-500 mt-1">Criado em: {new Date(summary.created_at).toLocaleDateString()}</p>
-                                        </button>
-                                    ))}
-                                </div>
-                            ) : (
-                                <div className="text-center py-20 text-gray-500">
-                                    <FileTextIcon className="w-12 h-12 mx-auto mb-2" />
-                                    <p>Nenhum resumo encontrado para esta disciplina.</p>
-                                </div>
-                            )
-                        ) : (
-                             <div className="text-center py-20 text-gray-400">
-                                <FileTextIcon className="w-16 h-16 mx-auto mb-4" />
-                                <h2 className="text-xl font-semibold">Bem-vindo aos Resumos Oficiais</h2>
-                                <p>Selecione uma disciplina no painel à esquerda para começar.</p>
-                            </div>
-                        )}
+            <div className="h-full w-full flex flex-col bg-gray-50 overflow-y-auto">
+                {/* Header */}
+                <header className="p-6 border-b border-gray-200 bg-white flex justify-between items-center sticky top-0 z-10">
+                    <div>
+                        <h1 className="text-3xl font-bold text-gray-800">Resumos Oficiais</h1>
+                        <p className="text-gray-500 mt-1">Todos os resumos disponíveis para estudo na plataforma.</p>
                     </div>
+                    <div className="flex items-center gap-2">
+                        <button 
+                            onClick={loadData}
+                            className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
+                            title="Atualizar Lista"
+                        >
+                            <RefreshCwIcon className="w-5 h-5" />
+                        </button>
+                        <button
+                            onClick={() => setIsCreateModalOpen(true)}
+                            className="px-4 py-2 bg-primary text-white font-semibold rounded-lg hover:bg-primary-dark transition-colors flex items-center gap-2"
+                        >
+                            <PlusCircleIcon className="w-5 h-5" />
+                            Criar Novo Resumo
+                        </button>
+                    </div>
+                </header>
+
+                {/* Filter Bar */}
+                <div className="px-6 py-4 border-b border-gray-200 bg-white flex items-center gap-4">
+                    <div className="relative flex-grow max-w-md">
+                        <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                        <input 
+                            type="text" 
+                            placeholder="Buscar por título ou disciplina..." 
+                            value={searchTerm}
+                            onChange={e => setSearchTerm(e.target.value)}
+                            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:outline-none"
+                        />
+                    </div>
+                    <p className="text-sm text-gray-500 ml-auto">{filteredSummaries.length} resumos encontrados</p>
+                </div>
+
+                {/* Main Grid Content */}
+                <main className="flex-grow p-6">
+                    {isLoading ? (
+                        <div className="flex justify-center items-center h-64">
+                            <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+                        </div>
+                    ) : filteredSummaries.length > 0 ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                            {filteredSummaries.map(summary => (
+                                <div key={summary.id} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col hover:shadow-md transition-shadow">
+                                    <div className="p-5 flex-grow">
+                                        <div className="flex justify-between items-start mb-2">
+                                            <div className="bg-primary/10 text-primary p-2 rounded-lg">
+                                                <FileTextIcon className="w-6 h-6" />
+                                            </div>
+                                            <span className="text-[10px] text-gray-400 font-mono">{new Date(summary.created_at).toLocaleDateString()}</span>
+                                        </div>
+                                        <h3 className="text-lg font-bold text-gray-800 mb-1 line-clamp-2" title={summary.title}>{summary.title}</h3>
+                                        
+                                        <div className="mt-4 space-y-1">
+                                            <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide">Contexto Acadêmico</p>
+                                            <div className="text-xs text-gray-600 bg-gray-50 p-2 rounded border border-gray-100">
+                                                <span className="font-bold text-gray-700">{summary.courseName}</span>
+                                                <span className="mx-1 text-gray-400">/</span>
+                                                <span>{summary.moduleName}</span>
+                                                <span className="mx-1 text-gray-400">/</span>
+                                                <span className="text-primary font-medium">{summary.disciplineName}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="p-4 border-t bg-gray-50">
+                                        <button 
+                                            onClick={() => setViewingSummary(summary)}
+                                            className="w-full py-2 bg-white border border-gray-200 text-gray-700 font-semibold rounded-lg hover:bg-primary hover:text-white hover:border-primary transition-colors shadow-sm"
+                                        >
+                                            Ler Resumo
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="text-center py-20">
+                            <div className="bg-gray-100 p-4 rounded-full inline-block mb-4">
+                                <FileTextIcon className="w-12 h-12 text-gray-400" />
+                            </div>
+                            <h2 className="text-xl font-semibold text-gray-600">Nenhum resumo encontrado</h2>
+                            <p className="text-gray-500 mt-2">Tente ajustar sua busca ou crie um novo resumo.</p>
+                        </div>
+                    )}
                 </main>
             </div>
+
             {viewingSummary && (
                 <SummaryReaderModal 
                     summary={viewingSummary} 
@@ -489,12 +578,11 @@ const OfficialSummariesPage: React.FC = () => {
                     isEditable={true}
                 />
             )}
+            
             {isCreateModalOpen && (
                 <CreateSummaryModal
                     onClose={() => setIsCreateModalOpen(false)}
                     onSave={handleCreateSummary}
-                    initialDisciplineId={selectedDiscipline?.id}
-                    structure={structure}
                 />
             )}
         </>

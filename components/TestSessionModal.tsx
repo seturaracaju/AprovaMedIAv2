@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { StudentAvailableTest, QuizQuestion, StudentTestAttempt } from '../types';
 import * as testService from '../services/testService';
-import { XIcon, ClockIcon, ArrowLeftIcon, ChevronRightIcon, SendIcon, CheckCircleIcon, XCircleIcon } from './IconComponents';
+import { XIcon, ClockIcon, ArrowLeftIcon, ChevronRightIcon, SendIcon, CheckCircleIcon, XCircleIcon, MaximizeIcon, MinimizeIcon } from './IconComponents';
 
 interface TestSessionModalProps {
     studentId: string;
@@ -21,6 +22,8 @@ const TestSessionModal: React.FC<TestSessionModalProps> = ({ studentId, test, on
     const [answers, setAnswers] = useState<{ [key: number]: number }>({});
     const [timeRemaining, setTimeRemaining] = useState(0);
     const [view, setView] = useState<'loading' | 'taking_test' | 'submitting' | 'results'>('loading');
+    const [isFocusMode, setIsFocusMode] = useState(false);
+    const modalRef = useRef<HTMLDivElement>(null);
 
     // Timer setup
     useEffect(() => {
@@ -76,9 +79,31 @@ const TestSessionModal: React.FC<TestSessionModalProps> = ({ studentId, test, on
         }
     }, [view, handleBeforeUnload]);
 
+    const toggleFocusMode = () => {
+        if (!document.fullscreenElement) {
+            modalRef.current?.requestFullscreen().then(() => setIsFocusMode(true)).catch(err => {
+                console.error(`Error attempting to enable full-screen mode: ${err.message} (${err.name})`);
+            });
+        } else {
+            document.exitFullscreen().then(() => setIsFocusMode(false));
+        }
+    };
+
+    // Listen for fullscreen change (in case user exits via ESC)
+    useEffect(() => {
+        const handleFullscreenChange = () => {
+            setIsFocusMode(!!document.fullscreenElement);
+        };
+        document.addEventListener('fullscreenchange', handleFullscreenChange);
+        return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    }, []);
+
     const handleCloseAttempt = async (isAbandoning = false) => {
         if (isAbandoning && currentAttempt) {
             await testService.abandonTestAttempt(currentAttempt.id);
+        }
+        if (document.fullscreenElement) {
+            await document.exitFullscreen();
         }
         window.removeEventListener('beforeunload', handleBeforeUnload);
         onClose();
@@ -91,6 +116,9 @@ const TestSessionModal: React.FC<TestSessionModalProps> = ({ studentId, test, on
     const handleSubmit = async () => {
         if (!currentAttempt) return;
         setView('submitting');
+        if (document.fullscreenElement) {
+             await document.exitFullscreen();
+        }
         const submittedAttempt = await testService.submitTestAttempt(currentAttempt.id, test.questions, answers);
         if (submittedAttempt) {
             setCurrentAttempt(submittedAttempt);
@@ -112,18 +140,30 @@ const TestSessionModal: React.FC<TestSessionModalProps> = ({ studentId, test, on
     const currentQuestion = test.questions[currentQuestionIndex];
 
     return (
-        <div className="fixed inset-0 bg-white z-[90] flex flex-col">
+        <div ref={modalRef} className="fixed inset-0 bg-white z-[90] flex flex-col">
              {/* Header */}
-            <header className="p-3 border-b flex-shrink-0 flex justify-between items-center bg-gray-50">
+            <header className={`p-3 border-b flex-shrink-0 flex justify-between items-center ${isFocusMode ? 'bg-gray-900 text-white border-gray-800' : 'bg-gray-50'}`}>
                 <div className="flex-1 min-w-0">
-                    <h1 className="text-lg font-bold text-gray-800 truncate">{test.name}</h1>
-                    <p className="text-sm text-gray-500">{test.questions.length} questões</p>
+                    <h1 className="text-lg font-bold truncate">{test.name}</h1>
+                    <p className={`text-sm ${isFocusMode ? 'text-gray-400' : 'text-gray-500'}`}>{test.questions.length} questões</p>
                 </div>
-                <div className="flex items-center gap-4 mx-4">
-                    <ClockIcon className="w-6 h-6 text-primary" />
-                    <span className="text-xl font-bold font-mono text-primary">{formatTime(timeRemaining)}</span>
+                
+                <div className={`flex items-center gap-4 mx-4 px-4 py-2 rounded-lg ${isFocusMode ? 'bg-gray-800' : 'bg-white border shadow-sm'}`}>
+                    <ClockIcon className={`w-6 h-6 ${isFocusMode ? 'text-white' : 'text-primary'}`} />
+                    <span className={`text-xl font-bold font-mono ${isFocusMode ? 'text-white' : 'text-primary'}`}>{formatTime(timeRemaining)}</span>
                 </div>
-                <div className="flex-1 flex justify-end">
+
+                <div className="flex-1 flex justify-end items-center gap-2">
+                     {view === 'taking_test' && (
+                         <button 
+                            onClick={toggleFocusMode} 
+                            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors ${isFocusMode ? 'bg-gray-800 text-white hover:bg-gray-700' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
+                            title={isFocusMode ? "Sair do Modo Foco" : "Entrar no Modo Foco"}
+                        >
+                            {isFocusMode ? <MinimizeIcon className="w-4 h-4" /> : <MaximizeIcon className="w-4 h-4" />}
+                            <span className="hidden sm:inline">{isFocusMode ? 'Sair do Foco' : 'Modo Foco'}</span>
+                        </button>
+                     )}
                      <button onClick={() => {
                         if (view === 'taking_test') {
                             if (window.confirm("Tem certeza que quer sair? Sua tentativa será marcada como abandonada.")) {
@@ -132,25 +172,29 @@ const TestSessionModal: React.FC<TestSessionModalProps> = ({ studentId, test, on
                         } else if (view === 'results') {
                             handleCloseAttempt(false);
                         }
-                     }} className="p-2 rounded-full hover:bg-gray-200">
-                        <XIcon className="w-6 h-6 text-gray-600" />
+                     }} className={`p-2 rounded-full transition-colors ${isFocusMode ? 'hover:bg-gray-800 text-gray-300' : 'hover:bg-gray-200 text-gray-600'}`}>
+                        <XIcon className="w-6 h-6" />
                     </button>
                 </div>
             </header>
 
             {view === 'taking_test' && (
-                <div className="flex flex-grow overflow-hidden">
-                    {/* Question Navigator */}
-                    <nav className="w-48 border-r bg-gray-50 p-4 overflow-y-auto">
-                        <h2 className="text-sm font-semibold mb-3">Questões</h2>
+                <div className={`flex flex-grow overflow-hidden ${isFocusMode ? 'bg-gray-900' : 'bg-white'}`}>
+                    {/* Question Navigator - Hidden in Focus Mode for less distraction, or styled differently? Keeping it visible but styled. */}
+                    <nav className={`w-48 border-r p-4 overflow-y-auto ${isFocusMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'}`}>
+                        <h2 className={`text-sm font-semibold mb-3 ${isFocusMode ? 'text-gray-300' : 'text-gray-700'}`}>Questões</h2>
                         <div className="grid grid-cols-4 gap-2">
                             {test.questions.map((_, index) => (
                                 <button 
                                     key={index} 
                                     onClick={() => setCurrentQuestionIndex(index)}
                                     className={`w-10 h-10 rounded-lg font-semibold flex items-center justify-center border-2 transition-colors
-                                        ${index === currentQuestionIndex ? 'bg-primary text-white border-primary-dark' : 
-                                        (answers[index] !== undefined ? 'bg-blue-200 border-blue-400 text-blue-800' : 'bg-white hover:bg-gray-200 border-gray-300')}
+                                        ${index === currentQuestionIndex 
+                                            ? 'bg-primary text-white border-primary-dark' 
+                                            : (answers[index] !== undefined 
+                                                ? (isFocusMode ? 'bg-blue-900/50 border-blue-700 text-blue-200' : 'bg-blue-200 border-blue-400 text-blue-800') 
+                                                : (isFocusMode ? 'bg-gray-700 border-gray-600 text-gray-300 hover:bg-gray-600' : 'bg-white hover:bg-gray-200 border-gray-300'))
+                                        }
                                     `}
                                 >
                                     {index + 1}
@@ -161,30 +205,40 @@ const TestSessionModal: React.FC<TestSessionModalProps> = ({ studentId, test, on
 
                     {/* Main Content */}
                     <main className="flex-1 flex flex-col p-6 overflow-y-auto">
-                        <div className="flex-grow">
-                             <p className="text-sm font-semibold text-gray-500 mb-2">Questão {currentQuestionIndex + 1} de {test.questions.length}</p>
-                             <p className="text-lg font-semibold text-gray-800 mb-6">{currentQuestion.question}</p>
-                             <div className="space-y-3">
+                        <div className={`flex-grow max-w-4xl mx-auto w-full ${isFocusMode ? 'text-white' : 'text-gray-800'}`}>
+                             <p className={`text-sm font-semibold mb-2 ${isFocusMode ? 'text-gray-400' : 'text-gray-500'}`}>Questão {currentQuestionIndex + 1} de {test.questions.length}</p>
+                             <p className="text-xl font-semibold mb-8 leading-relaxed">{currentQuestion.question}</p>
+                             <div className="space-y-4">
                                 {currentQuestion.options.map((option, index) => (
-                                    <label key={index} className={`w-full text-left p-4 border rounded-lg transition-all flex items-center gap-4 cursor-pointer ${answers[currentQuestionIndex] === index ? 'bg-primary/20 border-primary shadow' : 'bg-gray-50 hover:bg-gray-100'}`}>
-                                        <input type="radio" name={`q_${currentQuestionIndex}`} checked={answers[currentQuestionIndex] === index} onChange={() => handleAnswerSelect(currentQuestionIndex, index)} className="h-4 w-4 text-primary focus:ring-primary border-gray-300"/>
-                                        <span className="text-gray-700">{option}</span>
+                                    <label 
+                                        key={index} 
+                                        className={`w-full text-left p-5 border-2 rounded-xl transition-all flex items-center gap-4 cursor-pointer
+                                            ${answers[currentQuestionIndex] === index 
+                                                ? 'bg-primary/20 border-primary shadow-md' 
+                                                : (isFocusMode ? 'bg-gray-800 border-gray-700 hover:bg-gray-700 hover:border-gray-500' : 'bg-gray-50 border-gray-200 hover:bg-gray-100 hover:border-gray-300')
+                                            }
+                                        `}
+                                    >
+                                        <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${answers[currentQuestionIndex] === index ? 'border-primary' : 'border-gray-400'}`}>
+                                            {answers[currentQuestionIndex] === index && <div className="w-3 h-3 bg-primary rounded-full"></div>}
+                                        </div>
+                                        <span className={`text-lg ${isFocusMode ? 'text-gray-200' : 'text-gray-700'}`}>{option}</span>
                                     </label>
                                 ))}
                             </div>
                         </div>
 
                         {/* Footer Navigation */}
-                        <footer className="mt-6 pt-4 border-t flex-shrink-0 flex justify-between items-center">
-                            <button onClick={() => setCurrentQuestionIndex(p => Math.max(0, p - 1))} disabled={currentQuestionIndex === 0} className="px-4 py-2 flex items-center gap-2 font-semibold rounded-lg hover:bg-gray-200 disabled:opacity-50">
+                        <footer className={`mt-8 pt-6 border-t flex-shrink-0 flex justify-between items-center max-w-4xl mx-auto w-full ${isFocusMode ? 'border-gray-800' : 'border-gray-200'}`}>
+                            <button onClick={() => setCurrentQuestionIndex(p => Math.max(0, p - 1))} disabled={currentQuestionIndex === 0} className={`px-6 py-3 flex items-center gap-2 font-semibold rounded-lg disabled:opacity-50 ${isFocusMode ? 'bg-gray-800 text-white hover:bg-gray-700' : 'bg-gray-200 text-gray-800 hover:bg-gray-300'}`}>
                                 <ArrowLeftIcon className="w-5 h-5"/> Anterior
                             </button>
                              {currentQuestionIndex === test.questions.length - 1 ? (
-                                <button onClick={handleSubmit} className="px-6 py-2 flex items-center gap-2 font-semibold rounded-lg bg-green-500 text-white hover:bg-green-600">
+                                <button onClick={handleSubmit} className="px-8 py-3 flex items-center gap-2 font-semibold rounded-lg bg-green-600 text-white hover:bg-green-700 shadow-lg transform hover:scale-105 transition-all">
                                     Finalizar e Enviar <SendIcon className="w-5 h-5"/>
                                 </button>
                             ) : (
-                                <button onClick={() => setCurrentQuestionIndex(p => Math.min(test.questions.length - 1, p + 1))} className="px-4 py-2 flex items-center gap-2 font-semibold rounded-lg bg-primary text-white hover:bg-primary-dark">
+                                <button onClick={() => setCurrentQuestionIndex(p => Math.min(test.questions.length - 1, p + 1))} className="px-8 py-3 flex items-center gap-2 font-semibold rounded-lg bg-primary text-white hover:bg-primary-dark shadow-lg transform hover:scale-105 transition-all">
                                     Próxima <ChevronRightIcon className="w-5 h-5"/>
                                 </button>
                             )}

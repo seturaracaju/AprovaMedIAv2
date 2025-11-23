@@ -1,7 +1,9 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { StudentView } from './StudentApp';
-import { HomeIcon, LayersIcon, ClipboardListIcon, UserIcon, BookOpenIcon, FileTextIcon, MoreVerticalIcon, GlobeIcon } from './IconComponents';
+import { HomeIcon, LayersIcon, ClipboardListIcon, UserIcon, BookOpenIcon, FileTextIcon, MoreVerticalIcon, GlobeIcon, TrendingUpIcon, TrophyIcon, ShoppingBagIcon, MessageCircleIcon } from './IconComponents';
+import * as gamificationService from '../services/gamificationService';
+import { useUser } from '../contexts/UserContext';
 
 interface StudentSidebarProps {
     studentName: string;
@@ -13,11 +15,16 @@ interface StudentSidebarProps {
 const StudentSidebar: React.FC<StudentSidebarProps> = ({ studentName, currentView, setCurrentView, onLogout }) => {
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
+    const { userRole } = useUser();
+    const [stats, setStats] = useState({ xp: 0, level: 1, current_streak: 0 });
 
     const navItems = [
         { view: 'dashboard', label: 'Meu Dashboard', icon: HomeIcon },
         { view: 'explore', label: 'Explorar Banco', icon: GlobeIcon },
         { view: 'library', label: 'Minha Biblioteca', icon: BookOpenIcon },
+        { view: 'marketplace', label: 'Loja', icon: ShoppingBagIcon }, // Fase 4
+        { view: 'rooms', label: 'Salas de Estudo', icon: MessageCircleIcon }, // Fase 4
+        { view: 'community', label: 'Comunidade', icon: TrophyIcon },
         { view: 'tests', label: 'Meus Testes', icon: ClipboardListIcon },
         { view: 'summaries', label: 'Resumos Oficiais', icon: FileTextIcon },
         { view: 'trueFlashcards', label: 'Flashcards', icon: LayersIcon },
@@ -25,6 +32,16 @@ const StudentSidebar: React.FC<StudentSidebarProps> = ({ studentName, currentVie
     ];
     
     const logoUrl = "https://pub-872633efa2d545638be12ea86363c2ca.r2.dev/WhatsApp%20Image%202025-11-09%20at%2013.47.15%20(1).png";
+
+    useEffect(() => {
+        if (userRole.role === 'student') {
+            const fetchStats = async () => {
+                const data = await gamificationService.getStudentGamificationStats(userRole.studentId);
+                if (data) setStats(data);
+            };
+            fetchStats();
+        }
+    }, [userRole]);
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -36,11 +53,25 @@ const StudentSidebar: React.FC<StudentSidebarProps> = ({ studentName, currentVie
         return () => document.removeEventListener("mousedown", handleClickOutside);
     }, []);
 
+    const levelProgress = gamificationService.calculateLevelProgress(stats.xp);
+
     return (
         <aside className="w-64 bg-gray-900 text-white flex flex-col flex-shrink-0 h-full border-r border-gray-800">
             {/* Header: Logo Only */}
             <div className="py-4 px-6 flex items-center justify-center border-b border-gray-800">
                  <img src={logoUrl} alt="AprovaMed IA" className="w-full h-auto max-w-[160px] opacity-90 hover:opacity-100 transition-opacity" />
+            </div>
+
+            {/* Gamification Stats */}
+            <div className="px-4 py-4 border-b border-gray-800 bg-gray-800/50">
+                <div className="flex justify-between items-center mb-2 text-xs text-gray-400 font-bold uppercase tracking-wider">
+                    <span>Nível {stats.level}</span>
+                    <span className="text-primary flex items-center gap-1"><TrendingUpIcon className="w-3 h-3"/> {stats.current_streak} dias</span>
+                </div>
+                <div className="w-full bg-gray-700 rounded-full h-2 mb-1">
+                    <div className="bg-gradient-to-r from-primary to-primary-light h-2 rounded-full transition-all duration-500" style={{ width: `${levelProgress}%` }}></div>
+                </div>
+                <p className="text-[10px] text-right text-gray-500">{stats.xp} XP Total</p>
             </div>
 
             {/* Navigation */}

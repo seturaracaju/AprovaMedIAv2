@@ -7,7 +7,17 @@ import { Course, Module, Discipline, QuestionSet, QuizQuestion, Class, Student }
 
 type Step = 1 | 2 | 3;
 
-const CreateTestModal: React.FC<{ onClose: () => void; onTestCreated: () => void; }> = ({ onClose, onTestCreated }) => {
+interface CreateTestModalProps {
+    onClose: () => void;
+    onTestCreated: () => void;
+    initialData?: {
+        name: string;
+        questions: QuizQuestion[];
+        disciplineId: string;
+    } | null;
+}
+
+const CreateTestModal: React.FC<CreateTestModalProps> = ({ onClose, onTestCreated, initialData }) => {
     const [step, setStep] = useState<Step>(1);
     
     // Step 1 State
@@ -55,22 +65,76 @@ const CreateTestModal: React.FC<{ onClose: () => void; onTestCreated: () => void
             setStudents(studentsData);
             const allSets = bankData.flatMap(c => c.modules?.flatMap(m => m.disciplines?.flatMap(d => d.question_sets) || []) || []);
             setAllQuestionSets(allSets.filter(Boolean) as QuestionSet[]);
+            
+            // Handle Initial Data (Pre-fill and Jump to Step 3)
+            if (initialData) {
+                setTestName(initialData.name);
+                
+                // Pre-select questions
+                const initialMap = new Map<string, QuizQuestion>();
+                initialData.questions.forEach((q, i) => {
+                    initialMap.set(`preselected-${i}`, q);
+                });
+                setSelectedQuestions(initialMap);
+
+                // Reverse lookup Context (Course/Module from Discipline)
+                const targetDiscId = initialData.disciplineId;
+                let foundCourseId = '';
+                let foundModuleId = '';
+
+                // Find the hierarchy
+                // Note: bankData is structured as Course -> Modules -> Disciplines
+                for (const course of bankData) {
+                    if (course.modules) {
+                        for (const mod of course.modules) {
+                            if (mod.disciplines?.some(d => d.id === targetDiscId)) {
+                                foundCourseId = course.id;
+                                foundModuleId = mod.id;
+                                break;
+                            }
+                        }
+                    }
+                    if (foundCourseId) break;
+                }
+
+                if (foundCourseId) {
+                    setContextCourseId(foundCourseId);
+                    // Fetch modules for this course immediately to populate dropdowns if user goes back
+                    const courseModules = await academicService.getModules(foundCourseId);
+                    setModules(courseModules);
+                    setContextModuleId(foundModuleId);
+                    
+                    const modDisciplines = await academicService.getDisciplines(foundModuleId);
+                    setDisciplines(modDisciplines);
+                    setContextDisciplineId(targetDiscId);
+                }
+
+                // Jump to Step 3
+                setStep(3);
+            }
+
             setIsLoading(false);
         };
         fetchData();
-    }, []);
+    }, [initialData]);
 
-    // Fetch dependent data
+    // Fetch dependent data (Only if user interacts manually)
     useEffect(() => {
-        if (contextCourseId) academicService.getModules(contextCourseId).then(setModules);
-        else setModules([]);
-        setContextModuleId(null);
+        if (contextCourseId && !initialData) { // Avoid overwriting if initialData is loading
+            academicService.getModules(contextCourseId).then(setModules);
+            setContextModuleId(null);
+        } else if (!contextCourseId) {
+            setModules([]);
+        }
     }, [contextCourseId]);
 
     useEffect(() => {
-        if (contextModuleId) academicService.getDisciplines(contextModuleId).then(setDisciplines);
-        else setDisciplines([]);
-        setContextDisciplineId(null);
+        if (contextModuleId && !initialData) { // Avoid overwriting
+            academicService.getDisciplines(contextModuleId).then(setDisciplines);
+            setContextDisciplineId(null);
+        } else if (!contextModuleId) {
+            setDisciplines([]);
+        }
     }, [contextModuleId]);
 
     // Memoized filters
@@ -127,7 +191,11 @@ const CreateTestModal: React.FC<{ onClose: () => void; onTestCreated: () => void
             testName,
             Array.from(selectedQuestions.values()),
             testType,
-            { courseId: contextCourseId, moduleId: contextModuleId, disciplineId: contextDisciplineId }
+            { 
+                courseId: contextCourseId || null, 
+                moduleId: contextModuleId || null, 
+                disciplineId: contextDisciplineId || null 
+            }
         );
 
         if (newTest && testType === 'scheduled') {
@@ -207,7 +275,21 @@ const CreateTestModal: React.FC<{ onClose: () => void; onTestCreated: () => void
                             <div key={key} className="flex items-center gap-2 p-1 bg-gray-50 rounded">
                                 <span className="font-mono text-xs w-6">{i+1}.</span>
                                 <p className="truncate flex-grow">{q.question}</p>
-                                <button onClick={() => handleToggleQuestion(q, key.split('-')[0], parseInt(key.split('-')[1]))} className="text-red-500 p-1">
+                                <button onClick={() => {
+                                    if (initialData) {
+                                        alert("Não é possível remover questões no modo de criação rápida. Crie um teste personalizado se desejar.");
+                                        return;
+                                    }
+                                    const keyParts = key.split('-');
+                                    if (keyParts.length >= 2) {
+                                         handleToggleQuestion(q, keyParts[0], parseInt(keyParts[1]));
+                                    } else {
+                                        // Fallback for preselected items with dummy keys
+                                        const newSelection = new Map(selectedQuestions);
+                                        newSelection.delete(key);
+                                        setSelectedQuestions(newSelection);
+                                    }
+                                }} className="text-red-500 p-1">
                                     <XIcon className="w-3 h-3"/>
                                 </button>
                             </div>
@@ -278,7 +360,7 @@ const CreateTestModal: React.FC<{ onClose: () => void; onTestCreated: () => void
                     <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-200"><XIcon className="w-6 h-6"/></button>
                 </header>
                 <main className="flex-grow p-6 overflow-y-auto">
-                    {isLoading ? <p>Carregando...</p> : (
+                    {isLoading ? <div className="flex justify-center items-center h-full"><div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin"></div></div> : (
                         step === 1 ? renderStep1() :
                         step === 2 ? renderStep2() :
                         renderStep3()

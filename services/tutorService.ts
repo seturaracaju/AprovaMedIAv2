@@ -3,11 +3,13 @@ import { UserRole, DashboardAnalytics, StudentAnalytics } from '../types';
 import * as dashboardService from './dashboardService';
 import * as analyticsService from './analyticsService';
 
-if (!process.env.API_KEY) {
-    throw new Error("API_KEY environment variable not set");
-}
-
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Helper para obter a instância da IA apenas quando necessário
+const getAI = () => {
+    if (!process.env.API_KEY) {
+        throw new Error("API_KEY environment variable not set");
+    }
+    return new GoogleGenAI({ apiKey: process.env.API_KEY });
+};
 
 const getTeacherContext = async (): Promise<string> => {
     const analytics = await dashboardService.getDashboardAnalytics();
@@ -55,6 +57,7 @@ const getStudentContext = async (studentId: string): Promise<string> => {
 
 export const getTutorResponse = async (userMessage: string, userRole: UserRole): Promise<string> => {
     try {
+        const ai = getAI();
         let systemInstruction = '';
         let contextData = '';
 
@@ -83,7 +86,7 @@ export const getTutorResponse = async (userMessage: string, userRole: UserRole):
             contents: prompt,
         });
 
-        return response.text;
+        return response.text || "Não consegui gerar uma resposta.";
 
     } catch (error: any) {
         console.error("Erro ao obter resposta do Tutor IA:", error.message || error);

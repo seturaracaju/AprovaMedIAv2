@@ -1,5 +1,6 @@
+
 import React, { useCallback, useState } from 'react';
-import { UploadCloudIcon } from './IconComponents';
+import { UploadCloudIcon, ImageIcon } from './IconComponents';
 
 interface LandingPageProps {
     onPdfUpload: (file: File) => void;
@@ -21,10 +22,12 @@ const LandingPage: React.FC<LandingPageProps> = ({ onPdfUpload, isLoading, error
         e.stopPropagation();
         setIsDragging(false);
         if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-            if (e.dataTransfer.files[0].type === 'application/pdf') {
-                onPdfUpload(e.dataTransfer.files[0]);
+            const file = e.dataTransfer.files[0];
+            // Aceita PDF e Imagens
+            if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
+                onPdfUpload(file);
             } else {
-                alert("Por favor, envie um arquivo PDF válido.");
+                alert("Por favor, envie um arquivo PDF ou Imagem (PNG, JPG) válido.");
             }
         }
     }, [onPdfUpload]);
@@ -54,7 +57,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onPdfUpload, isLoading, error
                         Potencialize Seus Estudos para Medicina com <span className="text-primary">IA</span>
                     </h2>
                     <p className="text-lg text-gray-600 mb-8 max-w-2xl mx-auto">
-                        Envie seus guias de estudo, artigos e provas antigas. Crie instantaneamente questões de estudo interativas e converse com seus documentos para dominar qualquer assunto.
+                        Envie seus guias de estudo (PDF) ou fotos de anotações/provas (Imagens). A IA irá ler, transcrever e criar questões interativas instantaneamente.
                     </p>
 
                     <div
@@ -66,26 +69,27 @@ const LandingPage: React.FC<LandingPageProps> = ({ onPdfUpload, isLoading, error
                     >
                         <input
                             type="file"
-                            id="pdf-upload"
+                            id="file-upload"
                             className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                             onChange={handleFileChange}
-                            accept=".pdf"
+                            accept=".pdf, .png, .jpg, .jpeg"
                             disabled={isLoading}
                         />
                         <div className="flex flex-col items-center justify-center space-y-4">
                             {isLoading ? (
                                 <>
                                     <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
-                                    <p className="text-gray-600 font-semibold">Analisando seu material...</p>
+                                    <p className="text-gray-600 font-semibold">Processando seu material com IA...</p>
                                 </>
                             ) : (
                                 <>
-                                    <div className="p-4 bg-primary/10 rounded-full group-hover:scale-110 transition-transform">
+                                    <div className="p-4 bg-primary/10 rounded-full group-hover:scale-110 transition-transform flex gap-2">
                                         <UploadCloudIcon className="w-10 h-10 text-primary" />
                                     </div>
-                                    <p className="text-gray-600 font-semibold">
-                                        <label htmlFor="pdf-upload" className="text-primary cursor-pointer hover:underline">Clique para enviar</label> ou arraste e solte seu PDF de estudo
-                                    </p>
+                                    <div className="text-gray-600 font-semibold">
+                                        <label htmlFor="file-upload" className="text-primary cursor-pointer hover:underline">Clique para enviar</label> ou arraste
+                                        <p className="text-sm text-gray-400 mt-1 font-normal">PDFs, Fotos de Caderno, Prints de Provas</p>
+                                    </div>
                                 </>
                             )}
                         </div>

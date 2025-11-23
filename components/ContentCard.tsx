@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { Course, Module, Discipline, QuestionSet, Class, Student, QuizQuestion } from '../types';
 import { LayersIcon, ClipboardListIcon, MoreVerticalIcon, EditIcon, TrashIcon, BarChartIcon, MoveIcon } from './IconComponents';
@@ -82,9 +83,10 @@ const ContentCard: React.FC<ContentCardProps> = ({ item, type, onSelect, onEdit,
     const handleCreateTest = (e: React.MouseEvent) => {
         e.stopPropagation();
         if (onCreateTest && 'questions' in item) {
-             const testName = prompt(`Qual o nome do teste a ser criado a partir de "${name}"?`, name);
-            if (testName) {
-                onCreateTest(testName, (item as QuestionSet).questions);
+            // Use a default name instead of prompting to ensure reliability
+            const defaultName = `${name} - Teste Rápido`;
+            if (window.confirm(`Deseja criar um teste com o nome "${defaultName}" contendo estas questões?`)) {
+                onCreateTest(defaultName, (item as QuestionSet).questions);
             }
         }
     };
