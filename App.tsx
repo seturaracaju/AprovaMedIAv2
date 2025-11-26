@@ -1,9 +1,11 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from './services/supabaseClient';
 import { Session } from '@supabase/supabase-js';
 import AuthPage from './components/AuthPage';
 import StudentApp from './components/StudentApp';
 import TeacherApp from './components/TeacherApp';
+import SubscriptionPage from './components/SubscriptionPage';
 import * as academicService from './services/academicService';
 import { Student } from './types';
 import { UserProvider } from './contexts/UserContext';
@@ -14,78 +16,77 @@ import('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.3.136/pdf.worker.min.mjs
 const App: React.FC = () => {
     const [session, setSession] = useState<Session | null>(null);
     const [studentProfile, setStudentProfile] = useState<Student | null>(null);
-    // Add a specific state for the user's role to make logic clearer.
     const [userRole, setUserRole] = useState<'teacher' | 'student' | null>(null);
     const [loading, setLoading] = useState(true);
     
-    // Use a ref to track the last user ID. This persists across renders without triggering them.
+    // Use a ref to track the last user ID.
     const lastUserId = useRef<string | undefined>(undefined);
 
-    useEffect(() => {
-        const checkUserRole = async (session: Session | null) => {
-            // Update the ref with the current user ID (or undefined if logged out)
-            lastUserId.current = session?.user?.id;
+    const checkUserRole = async (session: Session | null) => {
+        lastUserId.current = session?.user?.id;
 
-            if (session?.user) {
-                try {
-                    // Parallel fetch to check both tables independently
-                    // This ensures strict separation: you are either in the 'teachers' table or 'students' table.
-                    const [student, teacher] = await Promise.all([
-                        academicService.getStudentProfile(session.user.id),
-                        academicService.getTeacherProfile(session.user.id)
-                    ]);
+        if (session?.user) {
+            try {
+                const userId = session.user.id;
+                const userEmail = session.user.email?.toLowerCase() || '';
+                
+                // Emails hardcoded para admin/fallback
+                const adminEmails = [
+                    'aprovamedia@gmail.com', 
+                    'omaestrodaia@gmail.com',
+                    'ellatellesmed@gmail.com'
+                ];
 
-                    if (teacher) {
-                        // User is confirmed as a Teacher/Admin in the database
-                        console.log("User confirmed as Teacher/Admin");
-                        setUserRole('teacher');
-                        setStudentProfile(null);
-                    } else if (student) {
-                        // User is confirmed as a Student in the database
-                        console.log("User confirmed as Student");
-                        setStudentProfile(student);
-                        setUserRole('student');
-                    } else {
-                        // User is authenticated but has no role profile in either table
-                        console.warn("Access denied: User has no profile in 'students' or 'teachers'.");
-                        await supabase.auth.signOut();
-                        alert("Erro de Acesso: Seu usuário não possui um perfil de Aluno ou Professor associado. Entre em contato com o suporte.");
-                        setStudentProfile(null);
-                        setUserRole(null);
-                    }
-                } catch (error) {
-                    console.error("Error checking user role:", error);
+                const [student, teacher] = await Promise.all([
+                    academicService.getStudentProfile(userId),
+                    academicService.getTeacherProfile(userId)
+                ]);
+
+                if (teacher) {
+                    console.log("Acesso: Professor/Admin (Banco)");
+                    setUserRole('teacher');
+                    setStudentProfile(null);
+                } else if (adminEmails.includes(userEmail)) {
+                    console.log("Acesso: Admin (Email Whitelist)");
+                    const name = session.user.user_metadata?.full_name || 'Admin';
+                    await academicService.ensureTeacherProfile(userId, userEmail, name);
+                    setUserRole('teacher');
+                    setStudentProfile(null);
+                } else if (student) {
+                    console.log("Acesso: Aluno");
+                    setStudentProfile(student);
+                    setUserRole('student');
+                } else {
+                    console.warn("Acesso negado: Usuário sem perfil.");
+                    alert("Atenção: Seu usuário não possui perfil de Aluno ou Professor. Contate o suporte.");
                     setStudentProfile(null);
                     setUserRole(null);
+                    await supabase.auth.signOut();
                 }
-            } else {
-                // No session, so no user role.
+            } catch (error) {
+                console.error("Erro crítico ao verificar permissões:", error);
                 setStudentProfile(null);
                 setUserRole(null);
             }
-            setSession(session);
-            setLoading(false);
-        };
+        } else {
+            setStudentProfile(null);
+            setUserRole(null);
+        }
+        setSession(session);
+        setLoading(false);
+    };
 
-        // Check for initial session
+    useEffect(() => {
         supabase.auth.getSession().then(({ data: { session } }) => {
             checkUserRole(session);
         });
 
         const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
-            // FIX: Prevent auto-reload on tab switch/focus
-            // 1. Ignore token refreshes (happens in background)
             if (event === 'TOKEN_REFRESHED') return;
-
-            // 2. If the user ID hasn't changed, DO NOT trigger the loading screen.
-            // This prevents the app from unmounting/resetting state when switching tabs/windows.
             if (newSession?.user?.id === lastUserId.current) {
-                // We can update the session object silently without triggering a full 'loading' state
                 setSession(newSession);
                 return;
             }
-
-            // 3. Only trigger a full reload (with spinner) if it's a real login/logout event
             setLoading(true);
             checkUserRole(newSession);
         });
@@ -96,7 +97,10 @@ const App: React.FC = () => {
     if (loading) {
         return (
             <div className="h-screen w-screen flex items-center justify-center bg-gray-100">
-                <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+                <div className="flex flex-col items-center">
+                    <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+                    <p className="mt-4 text-gray-600 font-medium">Carregando AprovaMed IA...</p>
+                </div>
             </div>
         );
     }
@@ -105,20 +109,29 @@ const App: React.FC = () => {
         return <AuthPage />;
     }
 
-    // Render the correct app based on the determined role.
+    // Paywall Logic
+    const isStudentActive = studentProfile?.subscription_status === 'active';
+
     return (
         <UserProvider>
-            <div className="h-screen w-screen">
+            <div className="h-screen w-screen overflow-hidden bg-gray-100">
                 {userRole === 'student' && studentProfile ? (
-                    <StudentApp session={session} studentProfile={studentProfile} />
+                    isStudentActive ? (
+                        <StudentApp session={session} studentProfile={studentProfile} />
+                    ) : (
+                        <SubscriptionPage 
+                            student={studentProfile} 
+                            onSuccess={() => window.location.reload()} 
+                        />
+                    )
                 ) : userRole === 'teacher' ? (
                     <TeacherApp />
                 ) : (
-                    // This fallback handles cases where role is null/undetermined but session exists (rare due to logic above)
                      <div className="h-screen w-screen flex items-center justify-center bg-gray-100">
-                        <div className="text-center">
-                            <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto"></div>
-                            <p className="mt-4 text-gray-600">Verificando permissões...</p>
+                        <div className="text-center max-w-md p-6 bg-white rounded-xl shadow-lg">
+                            <div className="w-12 h-12 border-4 border-red-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                            <h2 className="text-xl font-bold text-gray-800">Verificando Acesso...</h2>
+                            <p className="mt-2 text-gray-600">Aguarde enquanto validamos seu perfil.</p>
                         </div>
                     </div>
                 )}

@@ -81,17 +81,33 @@ const SummaryReaderModal: FC<{
         }
     };
 
-    const handleDownloadPDF = () => {
+    const handleDownloadPDF = async () => {
         setIsDownloading(true);
         try {
+            // URL da Logo AprovaMed
+            const logoUrl = "https://pub-872633efa2d545638be12ea86363c2ca.r2.dev/WhatsApp%20Image%202025-11-09%20at%2013.47.15%20(1).png";
+            
+            // Converter a imagem para Base64
+            let base64Logo = '';
+            try {
+                const response = await fetch(logoUrl);
+                const blob = await response.blob();
+                base64Logo = await new Promise<string>((resolve) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => resolve(reader.result as string);
+                    reader.readAsDataURL(blob);
+                });
+            } catch (e) {
+                console.warn("Não foi possível carregar a logo para o PDF", e);
+            }
+
             const doc = new jsPDF({
                 orientation: 'p',
                 unit: 'mm',
                 format: 'a4',
             });
 
-            // Prepara o HTML para o PDF (converter markdown simples para tags HTML)
-            // Isso garante que o texto fique visível e formatado (negrito), sem "esconder" nada.
+            // Prepara o HTML para o PDF
             const htmlContent = content
                 .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') // Negrito
                 .replace(/^\* (.*$)/gm, '<li>$1</li>') // Listas
@@ -100,25 +116,59 @@ const SummaryReaderModal: FC<{
                 .replace(/\n/g, '<br>'); // Quebras de linha
 
             const printableElement = document.createElement('div');
+            
+            // Estrutura HTML Otimizada para html2canvas
+            // Usamos position fixed para a imagem de fundo dentro do contexto relativo do printableElement
             printableElement.innerHTML = `
-                <div style="width: 170mm; font-family: Helvetica, Arial, sans-serif; font-size: 12pt; line-height: 1.5; color: #333;">
-                    <h1 style="color: #0D9488; font-size: 18pt; margin-bottom: 10px; border-bottom: 2px solid #0D9488; padding-bottom: 5px;">${title}</h1>
-                    <div style="text-align: justify;">
-                        ${htmlContent}
-                    </div>
-                    <div style="margin-top: 20px; border-top: 1px solid #ccc; padding-top: 5px; text-align: center; font-size: 9pt; color: #888;">
-                        Gerado por AprovaMed IA
+                <div style="
+                    width: 170mm; 
+                    min-height: 280mm;
+                    font-family: Helvetica, Arial, sans-serif; 
+                    font-size: 12pt; 
+                    line-height: 1.6; 
+                    color: #333; 
+                    position: relative; 
+                    background-color: #ffffff;
+                    padding: 20px;
+                ">
+                    
+                    ${base64Logo ? `
+                        <div style="
+                            position: absolute; 
+                            top: 0; 
+                            left: 0; 
+                            width: 100%; 
+                            height: 100%; 
+                            display: flex; 
+                            justify-content: center; 
+                            align-items: center;
+                            z-index: 0;
+                            pointer-events: none;
+                            overflow: hidden;
+                        ">
+                            <img src="${base64Logo}" style="width: 80%; opacity: 0.08; object-fit: contain;" />
+                        </div>
+                    ` : ''}
+
+                    <div style="position: relative; z-index: 1;">
+                        <h1 style="color: #0D9488; font-size: 20pt; margin-bottom: 15px; border-bottom: 2px solid #0D9488; padding-bottom: 10px;">${title}</h1>
+                        
+                        <div style="text-align: justify;">
+                            ${htmlContent}
+                        </div>
+
+                        <div style="margin-top: 50px; border-top: 1px solid #ddd; padding-top: 10px; text-align: center; font-size: 9pt; color: #888;">
+                            <span style="color: #0D9488; font-weight: bold;">AprovaMed IA</span> • Seu Segundo Cérebro Acadêmico
+                        </div>
                     </div>
                 </div>
             `;
             
-            // CORREÇÃO: Posiciona o elemento em 0,0 mas atrás de tudo (z-index negativo).
-            // Mover para left: -9999px costuma causar renderização em branco no html2canvas.
+            // Posiciona fora da tela mas visível para o renderizador
             printableElement.style.position = 'absolute';
             printableElement.style.top = '0';
             printableElement.style.left = '0';
             printableElement.style.zIndex = '-9999';
-            printableElement.style.backgroundColor = '#ffffff'; // Fundo branco explícito
             
             document.body.appendChild(printableElement);
 
@@ -128,10 +178,10 @@ const SummaryReaderModal: FC<{
                     document.body.removeChild(printableElement);
                     setIsDownloading(false);
                 },
-                x: 20,
-                y: 20,
-                width: 170, // Largura útil A4 (210mm) - margens (20mm * 2) = 170mm
-                windowWidth: 1000, // Largura da janela virtual aumentada para garantir renderização correta
+                x: 15,
+                y: 15,
+                width: 180, 
+                windowWidth: 1000, 
             });
 
         } catch (error) {
@@ -154,13 +204,19 @@ const SummaryReaderModal: FC<{
                         <button 
                             onClick={handleDownloadPDF} 
                             disabled={isDownloading}
-                            className="p-2 rounded-lg hover:bg-gray-200 text-gray-600 disabled:opacity-50"
+                            className="p-2 rounded-lg hover:bg-gray-200 text-gray-600 disabled:opacity-50 flex items-center gap-2 font-medium text-sm"
                             title="Baixar PDF"
                         >
                             {isDownloading ? (
-                                <div className="w-5 h-5 border-2 border-gray-500 border-t-transparent rounded-full animate-spin"></div>
+                                <>
+                                    <div className="w-4 h-4 border-2 border-gray-500 border-t-transparent rounded-full animate-spin"></div>
+                                    <span className="hidden sm:inline">Gerando PDF...</span>
+                                </>
                             ) : (
-                                <DownloadIcon className="w-5 h-5" />
+                                <>
+                                    <DownloadIcon className="w-5 h-5" />
+                                    <span className="hidden sm:inline">PDF</span>
+                                </>
                             )}
                         </button>
                         <button onClick={() => setIsStudyMode(!isStudyMode)} className={`px-3 py-1.5 text-sm font-semibold rounded-lg flex items-center gap-2 transition-colors ${isStudyMode ? 'bg-primary/20 text-primary' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}>

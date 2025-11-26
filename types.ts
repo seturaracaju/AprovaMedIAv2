@@ -63,6 +63,9 @@ export interface Student {
     level?: number;
     current_streak?: number;
     last_study_date?: string;
+    // Subscription Fields
+    subscription_status?: 'active' | 'inactive' | 'overdue' | 'trial';
+    asaas_customer_id?: string;
 }
 
 
