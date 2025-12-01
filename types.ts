@@ -303,6 +303,8 @@ export interface OfficialSummary {
 export interface TrueFlashcard {
     question: string;
     answer: string;
+    tag?: string;
+    mnemonic?: string;
 }
 
 export interface FlashcardSet {

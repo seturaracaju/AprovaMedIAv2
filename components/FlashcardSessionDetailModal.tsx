@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { StudentFlashcardSession, FlashcardResponse, QuizQuestion } from '../types';
 import * as crmService from '../services/crmService';
@@ -28,9 +29,17 @@ const QuestionResult: React.FC<{
             return <div className="w-5 h-5 rounded-full border-2 border-gray-300 flex-shrink-0" title="Não respondida"></div>;
         }
         if (response.was_correct) {
-            return <CheckCircleIcon className="w-5 h-5 text-green-500 flex-shrink-0" title="Correto" />;
+            return (
+                <div className="flex-shrink-0" title="Correto">
+                    <CheckCircleIcon className="w-5 h-5 text-green-500" />
+                </div>
+            );
         }
-        return <XCircleIcon className="w-5 h-5 text-red-500 flex-shrink-0" title="Incorreto" />;
+        return (
+            <div className="flex-shrink-0" title="Incorreto">
+                <XCircleIcon className="w-5 h-5 text-red-500" />
+            </div>
+        );
     };
 
     return (

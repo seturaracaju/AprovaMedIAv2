@@ -19,10 +19,11 @@ const App: React.FC = () => {
     const [userRole, setUserRole] = useState<'teacher' | 'student' | null>(null);
     const [loading, setLoading] = useState(true);
     
-    // Use a ref to track the last user ID.
+    // Use a ref to track the last user ID to prevent reloads on window focus
     const lastUserId = useRef<string | undefined>(undefined);
 
     const checkUserRole = async (session: Session | null) => {
+        // Atualiza a ref imediatamente para evitar loops se o listener disparar novamente
         lastUserId.current = session?.user?.id;
 
         if (session?.user) {
@@ -37,10 +38,34 @@ const App: React.FC = () => {
                     'ellatellesmed@gmail.com'
                 ];
 
-                const [student, teacher] = await Promise.all([
-                    academicService.getStudentProfile(userId),
-                    academicService.getTeacherProfile(userId)
-                ]);
+                let student: Student | null = null;
+                let teacher: { id: string; name: string } | null = null;
+                let attempts = 0;
+                const maxAttempts = 5; // Tenta por aprox. 5 a 7 segundos
+
+                // Loop de Retry: Aguarda a criação do perfil no banco (Race Condition Fix)
+                while (attempts < maxAttempts) {
+                    const [s, t] = await Promise.all([
+                        academicService.getStudentProfile(userId),
+                        academicService.getTeacherProfile(userId)
+                    ]);
+
+                    if (s || t) {
+                        student = s;
+                        teacher = t;
+                        break; // Encontrou, sai do loop
+                    }
+
+                    // Se for admin hardcoded, não precisa esperar o banco
+                    if (adminEmails.includes(userEmail)) {
+                        break;
+                    }
+
+                    // Aguarda 1.5s antes da próxima tentativa
+                    console.log(`Perfil não encontrado. Tentativa ${attempts + 1}/${maxAttempts}... aguardando sincronização.`);
+                    await new Promise(resolve => setTimeout(resolve, 1500));
+                    attempts++;
+                }
 
                 if (teacher) {
                     console.log("Acesso: Professor/Admin (Banco)");
@@ -57,11 +82,16 @@ const App: React.FC = () => {
                     setStudentProfile(student);
                     setUserRole('student');
                 } else {
-                    console.warn("Acesso negado: Usuário sem perfil.");
-                    alert("Atenção: Seu usuário não possui perfil de Aluno ou Professor. Contate o suporte.");
+                    console.warn("Acesso negado: Usuário sem perfil após tentativas.");
+                    // Não desloga imediatamente para evitar flash se for apenas lag extremo, 
+                    // mas mostra a tela de espera/erro
                     setStudentProfile(null);
                     setUserRole(null);
-                    await supabase.auth.signOut();
+                    // Opcional: Deslogar se realmente falhar após todas as tentativas
+                    if (attempts >= maxAttempts) {
+                         alert("Não foi possível encontrar seu perfil de aluno. Se você acabou de se cadastrar, tente fazer login novamente.");
+                         await supabase.auth.signOut();
+                    }
                 }
             } catch (error) {
                 console.error("Erro crítico ao verificar permissões:", error);
@@ -83,10 +113,26 @@ const App: React.FC = () => {
 
         const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
             if (event === 'TOKEN_REFRESHED') return;
-            if (newSession?.user?.id === lastUserId.current) {
+            
+            // CORREÇÃO: Removemos a dependência de 'userRole' aqui.
+            // Se o ID do usuário da nova sessão for o mesmo do anterior (armazenado em lastUserId),
+            // apenas atualizamos o token da sessão sem disparar o loading (que desmonta a tela).
+            if (newSession?.user?.id && newSession.user.id === lastUserId.current) {
                 setSession(newSession);
                 return;
             }
+
+            // Se for logout, limpa tudo
+            if (event === 'SIGNED_OUT') {
+                lastUserId.current = undefined;
+                setSession(null);
+                setStudentProfile(null);
+                setUserRole(null);
+                setLoading(false);
+                return;
+            }
+
+            // Apenas mostra loading e verifica roles se for um usuário DIFERENTE ou login novo
             setLoading(true);
             checkUserRole(newSession);
         });
@@ -129,9 +175,9 @@ const App: React.FC = () => {
                 ) : (
                      <div className="h-screen w-screen flex items-center justify-center bg-gray-100">
                         <div className="text-center max-w-md p-6 bg-white rounded-xl shadow-lg">
-                            <div className="w-12 h-12 border-4 border-red-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                            <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
                             <h2 className="text-xl font-bold text-gray-800">Verificando Acesso...</h2>
-                            <p className="mt-2 text-gray-600">Aguarde enquanto validamos seu perfil.</p>
+                            <p className="mt-2 text-gray-600">Finalizando a criação da sua conta.</p>
                         </div>
                     </div>
                 )}
