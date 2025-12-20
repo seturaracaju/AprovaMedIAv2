@@ -19,6 +19,7 @@ import FloatingChatButton from './FloatingChatButton';
 import TutorChatModal from './TutorChatModal';
 import * as geminiService from '../services/geminiService';
 import { useUser } from '../contexts/UserContext';
+import { MenuIcon } from './IconComponents';
 
 export type View = 'dashboard' | 'landing' | 'chat' | 'academicManagement' | 'studyBank' | 'tests' | 'crm' | 'officialSummaries' | 'trueFlashcards' | 'marketplace' | 'gamification' | 'studyRooms';
 
@@ -33,6 +34,9 @@ const TeacherApp: React.FC = () => {
 
     const [currentView, setCurrentView] = useState<View>('dashboard'); 
     const [isTutorModalOpen, setIsTutorModalOpen] = useState(false);
+    
+    // Novo estado para o menu mobile
+    const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
     
     // Context sync for Tutor AI and Sidebar
     const { setUserRole } = useUser();
@@ -106,13 +110,38 @@ const TeacherApp: React.FC = () => {
                 return <LandingPage onPdfUpload={handleFileUpload} isLoading={isPdfLoading || isImageLoading} error={pdfError || imageError} />;
         }
     };
+    
+    const logoUrl = "https://pub-872633efa2d545638be12ea86363c2ca.r2.dev/WhatsApp%20Image%202025-11-09%20at%2013.47.15%20(1).png";
 
     return (
-        <div className="flex h-full w-full bg-gray-100">
-            <Sidebar currentView={currentView} setCurrentView={setCurrentView} onLogout={handleLogout} />
-            <div className="flex-1 flex flex-col overflow-hidden">
-                {renderView()}
+        <div className="flex h-screen w-screen bg-gray-100 overflow-hidden">
+            {/* Sidebar Responsiva */}
+            <Sidebar 
+                currentView={currentView} 
+                setCurrentView={setCurrentView} 
+                onLogout={handleLogout}
+                isOpen={isMobileMenuOpen}
+                onClose={() => setIsMobileMenuOpen(false)}
+            />
+            
+            <div className="flex-1 flex flex-col min-w-0">
+                {/* Header Mobile (Apenas visível em telas pequenas) */}
+                <header className="md:hidden flex items-center justify-between p-4 bg-white border-b border-gray-200 z-10 flex-shrink-0">
+                    <button 
+                        onClick={() => setIsMobileMenuOpen(true)}
+                        className="p-2 -ml-2 rounded-md text-gray-600 hover:bg-gray-100"
+                    >
+                        <MenuIcon className="w-6 h-6" />
+                    </button>
+                    <img src={logoUrl} alt="AprovaMed" className="h-6 w-auto" />
+                    <div className="w-8"></div> {/* Spacer para balancear */}
+                </header>
+
+                <div className="flex-1 overflow-hidden relative">
+                    {renderView()}
+                </div>
             </div>
+
             <FloatingChatButton onClick={() => setIsTutorModalOpen(true)} />
             {isTutorModalOpen && <TutorChatModal onClose={() => setIsTutorModalOpen(false)} />}
         </div>

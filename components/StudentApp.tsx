@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Session } from '@supabase/supabase-js';
 import { Student } from '../types';
@@ -82,9 +83,9 @@ const StudentApp: React.FC<StudentAppProps> = ({ studentProfile, session }) => {
     }
     
     return (
-        <div className="flex h-full w-full bg-gray-100">
+        <div className="flex h-screen w-screen bg-gray-100 overflow-hidden">
             {/* Sidebar visível apenas em Desktop (md e acima) */}
-            <div className="hidden md:flex h-full">
+            <div className="hidden md:flex h-full flex-shrink-0">
                 <StudentSidebar
                     studentName={studentProfile.name}
                     currentView={currentView}
@@ -94,7 +95,7 @@ const StudentApp: React.FC<StudentAppProps> = ({ studentProfile, session }) => {
             </div>
 
             {/* Conteúdo Principal */}
-            <div className="flex-1 flex flex-col overflow-hidden pb-16 md:pb-0">
+            <div className="flex-1 flex flex-col h-full overflow-hidden pb-16 md:pb-0 relative min-w-0">
                 {renderView()}
             </div>
 
