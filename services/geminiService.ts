@@ -3,12 +3,18 @@ import { QuizQuestion, TrueFlashcard } from '../types';
 
 // Helper para obter a instância da IA apenas quando necessário
 const getAI = () => {
-    // Obtém a chave exclusivamente de process.env.API_KEY conforme diretrizes
-    const apiKey = process.env.API_KEY;
+    // Tenta obter a chave de process.env (Node/Padrão) ou import.meta.env (Vite/Vercel)
+    let apiKey = process.env.API_KEY;
+    
+    // @ts-ignore
+    if (!apiKey && typeof import.meta !== 'undefined' && import.meta.env) {
+        // @ts-ignore
+        apiKey = import.meta.env.VITE_API_KEY;
+    }
 
     if (!apiKey) {
-        console.error("ERRO CRÍTICO: API Key não encontrada. Configure API_KEY.");
-        throw new Error("API_KEY environment variable not set");
+        console.error("ERRO CRÍTICO: API Key não encontrada. Configure VITE_API_KEY na Vercel.");
+        throw new Error("API_KEY environment variable not set. Please set VITE_API_KEY in Vercel.");
     }
     return new GoogleGenAI({ apiKey: apiKey });
 };
