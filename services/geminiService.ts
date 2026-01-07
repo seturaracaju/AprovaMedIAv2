@@ -3,19 +3,26 @@ import { QuizQuestion, TrueFlashcard } from '../types';
 
 // Helper para obter a instância da IA apenas quando necessário
 const getAI = () => {
-    // Tenta obter a chave de process.env (Node/Padrão) ou import.meta.env (Vite/Vercel)
-    let apiKey = process.env.API_KEY;
-    
+    let apiKey = '';
+
+    // 1. Tenta obter do Vite (Padrão para Vercel/Frontend moderno)
     // @ts-ignore
-    if (!apiKey && typeof import.meta !== 'undefined' && import.meta.env) {
+    if (typeof import.meta !== 'undefined' && import.meta.env) {
         // @ts-ignore
-        apiKey = import.meta.env.VITE_API_KEY;
+        apiKey = import.meta.env.VITE_API_KEY || '';
+    }
+
+    // 2. Fallback seguro para process.env (Node.js ou builds que polyfillam process)
+    // Verifica typeof process antes de acessar para evitar ReferenceError no navegador
+    if (!apiKey && typeof process !== 'undefined' && process.env) {
+        apiKey = process.env.API_KEY || process.env.VITE_API_KEY || '';
     }
 
     if (!apiKey) {
-        console.error("ERRO CRÍTICO: API Key não encontrada. Configure VITE_API_KEY na Vercel.");
-        throw new Error("API_KEY environment variable not set. Please set VITE_API_KEY in Vercel.");
+        console.error("ERRO CRÍTICO: Nenhuma API Key encontrada. Verifique VITE_API_KEY na Vercel.");
+        throw new Error("Chave de API não configurada. Adicione 'VITE_API_KEY' nas variáveis de ambiente.");
     }
+    
     return new GoogleGenAI({ apiKey: apiKey });
 };
 
@@ -91,7 +98,10 @@ export const answerQuestion = async (pdfText: string, userQuestion: string): Pro
 
         return response.text || "Não consegui gerar uma resposta.";
     } catch (error: any) {
-        console.error("Erro ao responder pergunta:", error.message || error);
+        console.error("Erro ao responder pergunta:", error);
+        if (error.message && (error.message.includes("API Key") || error.message.includes("VITE_API_KEY"))) {
+            return "Erro de Configuração: Chave de API inválida ou ausente. Verifique o painel da Vercel.";
+        }
         return "Desculpe, encontrei um erro ao processar sua solicitação. Verifique sua conexão ou a chave de API.";
     }
 };
@@ -140,7 +150,7 @@ const extractQuestionsFromChunk = async (chunkText: string): Promise<QuizQuestio
 };
 
 export const extractQuestionsFromPdf = async (pdfText: string): Promise<QuizQuestion[] | null> => {
-    const CHUNK_SIZE = 60000; // Reduzido ligeiramente para maior controle de custo por chamada
+    const CHUNK_SIZE = 60000; 
     const CHUNK_OVERLAP = 1000;
 
     const chunks: string[] = [];
